@@ -1,0 +1,69 @@
+# ----------------------------------------
+# Node / Express Standard Ignore
+# ----------------------------------------
+
+# Dependencies
+/node_modules/
+
+# Environment Vars
+.env
+.env.*  
+!.env.example
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+debug.log
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor folders
+.vscode/
+.idea/
+*.swp
+
+# Build artifacts
+/dist/
+build/
+.tmp/
+
+# Coverage
+coverage/
+
+# Cache
+.cache/
+.nyc_output/
+.eslintcache
+.parcel-cache/
+
+# Uploads (optional, kalau app lo nyimpen file user di folder public/uploads)
+uploads/
+public/uploads/
+
+# PM2 log & dump
+.pmdump
+pm2/logs/*
+pm2/pids/*
+pm2/pm2.log
+pm2/pm2.pid
+
+# Prisma (kalau dipakai)
+prisma/dev.db
+prisma/dev.db-journal
+
+# Sequelize auto-generated (kalau generate files)
+/migrations/
+/seeders/
+
+# TypeScript (kalau pakai TS)
+*.tsbuildinfo
+
+# ----------------------------------------
+# Keep this clean, keep your repo clean.
+# ----------------------------------------
