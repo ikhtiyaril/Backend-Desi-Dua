@@ -6,6 +6,7 @@ require("./config/passport");
 const passport = require("passport");
 const app = express();
 const session = require('express-session');
+const path = require('path')
 
 app.use(session({
   secret: process.env.SECRET,
@@ -28,6 +29,8 @@ app.get('/', (req, res) => {
 });
 
 
+
+
 app.use('/api/user', require('./routes/userRoutes'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/doctor',require('./routes/doctorRoutes'));
@@ -35,6 +38,18 @@ app.use('/api/service',require('./routes/serviceRoutes'));
 app.use('/api/booking',require('./routes/bookingRoutes'));
 app.use('/api/blocked-time',require('./routes/blockedTimesRoutes'))
 app.use('/api/doctor-schedule',require('./routes/doctorSchedulesRoutes'))
+app.use('/api/cart',require('./routes/cartRoutes'))
+app.use('/api/checkout',require('./routes/checkoutRoutes'))
+app.use('/api/medicine',require('./routes/medicineRoutes'))
+app.use('/api/orders',require('./routes/orderRoutes'))
+app.use('/api/prescription',require('./routes/prescriptionRoutes'))
+app.use('/api/categories',require('./routes/categoryRoutes'))
+app.use('/api/posts',require('./routes/postsRoutes'))
+app.use('/api/call',require('./routes/callRoutes'))
+
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+
 
 
 

@@ -26,7 +26,17 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: true
-    }
+    },// ==============================
+    // ⬇⬇⬇ Extra for LiveKit Video Call
+    // ==============================
+    livekit_room_name: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    is_live: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false
+    },
   }, {
     tableName: 'services',
     underscored: true,

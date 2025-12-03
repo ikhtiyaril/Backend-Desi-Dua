@@ -4,6 +4,7 @@ const { Booking, Service, Doctor, User , BlockedTime } = require('../models'); /
 const { Op } = require('sequelize');
 const verifyToken = require("../middleware/verifyToken");
 
+
 router.post('/', verifyToken, async (req, res) => {
   try {
     const { service_id, doctor_id, date, time_start, notes } = req.body;
@@ -96,6 +97,52 @@ router.get('/', async (req, res) => {
   }
 });
 
+// routes/bookingRoutes.js
+
+router.get("/me", verifyToken, async (req, res) => {
+
+
+  try {
+    const userId = req.user.id;
+
+    const bookings = await Booking.findAll({
+      where: { patient_id: userId },
+      include: [
+        {
+          model: Service,
+          attributes: ["id", "name", "duration_minutes", "price","is_live"],
+        },
+        {
+          model: Doctor,
+          attributes: ["id", "name"],
+        }
+        
+      ],
+      order: [["id", "DESC"]],
+    });
+
+    
+
+    return res.json({
+      success: true,
+      data: bookings,
+    });
+
+  } catch (err) {
+    console.log("----- ERROR WHILE GETTING BOOKINGS -----");
+    console.error(err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Gagal mengambil booking user",
+      error: err.message,
+    });
+  }
+});
+
+
+
+
 // ========================
 // Get Booking by ID
 // ========================
@@ -186,6 +233,7 @@ router.patch("/:id/status", async (req, res) => {
     res.status(500).json({ message: "Gagal update status", error: err.message });
   }
 });
+
 
 
 module.exports = router;

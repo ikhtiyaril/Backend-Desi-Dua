@@ -4,7 +4,6 @@ module.exports = (sequelize, DataTypes) => {
     booking_code: {
       type: DataTypes.STRING,
       allowNull: false,
-      unique: true
     },
     patient_id: {
       type: DataTypes.INTEGER,
@@ -47,7 +46,11 @@ module.exports = (sequelize, DataTypes) => {
     payment_method: {
       type: DataTypes.STRING,
       allowNull: true
-    }
+    },
+
+    
+  
+
   }, {
     tableName: 'bookings',
     underscored: true
@@ -66,7 +69,6 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'doctor_id'
     });
 
-    // Optional: relasi dengan blocked_time (kalau kamu pakai)
     Booking.belongsTo(models.BlockedTime, {
       foreignKey: 'blocked_time_id',
       allowNull: true
