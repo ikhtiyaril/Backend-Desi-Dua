@@ -21,7 +21,15 @@ app.use(passport.session());
 app.use(express.json());
 
 
-app.use(cors());
+app.use(cors({
+  origin: [
+    "http://localhost:5173",
+    "http://72.60.76.213",
+    "http://localhost:5174"
+  ],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+  credentials: true
+}));
 
 
 app.get('/', (req, res) => {
