@@ -141,6 +141,54 @@ router.get("/me", verifyToken, async (req, res) => {
 });
 
 
+router.get("/doctor", verifyToken, async (req, res) => {
+  console.log("===== /doctor route hit =====");
+
+  try {
+    console.log("REQ USER:", req.user); // lihat isi user dari token
+
+    const userId = req.user?.id;
+    if (!userId) {
+      console.log("⚠️ User ID tidak ditemukan di token!");
+      return res.status(400).json({ success: false, message: "User ID tidak ditemukan" });
+    }
+
+    const bookings = await Booking.findAll({
+      where: { doctor_id: userId },
+      include: [
+        {
+          model: Service,
+          attributes: ["id", "name", "duration_minutes", "price", "is_live"],
+        },
+        {
+          model: Doctor,
+          attributes: ["id", "name"],
+        }
+      ],
+      order: [["id", "DESC"]],
+    });
+
+    console.log(`✅ Bookings fetched: ${bookings.length} items`);
+    // optional: log the first booking to see structure
+    if (bookings.length > 0) console.log("First booking:", bookings[0].toJSON());
+
+    return res.json({
+      success: true,
+      data: bookings,
+    });
+
+  } catch (err) {
+    console.log("----- ERROR WHILE GETTING BOOKINGS -----");
+    console.error(err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Gagal mengambil booking doctor",
+      error: err.message,
+      stack: err.stack, // ini ngebantu debug error lebih detail
+    });
+  }
+});
 
 
 // ========================

@@ -33,7 +33,7 @@ route.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Password salah' });
     }
 
-    const payload = { name: data.name, email, role: data.role, id: data.id };
+    const payload = { name: data.name, email, role: data.role, id: data.id,phone: data.phone };
     const token = JWT.sign(payload, process.env.JWT_SECRET, { expiresIn: '1d' });
 
     console.log('[LOGIN] Login successful, token generated');
