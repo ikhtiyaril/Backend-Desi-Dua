@@ -25,7 +25,10 @@ app.use(cors({
   origin: [
     "http://localhost:5173",
     "http://72.60.76.213",
-    "http://localhost:5174"
+    "http://localhost:5174",
+    "http://72.60.76.213:3000",
+    "desidua.cloud"
+
   ],
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   credentials: true
