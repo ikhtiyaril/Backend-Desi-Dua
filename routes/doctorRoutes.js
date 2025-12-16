@@ -82,7 +82,7 @@ router.post('/login', async (req, res) => {
 router.post('/' ,upload.single('avatar'), async (req, res) => {
   try {
 
-    const { name, email, phone, specialization, bio, avatar, Study } = req.body;
+    let { name, email, phone, specialization, bio, avatar, Study } = req.body;
 if(req.file){
     const fileUrl = `${req.protocol}://${req.get("host")}/uploads/${req.file.filename}`;
     avatar = fileUrl
