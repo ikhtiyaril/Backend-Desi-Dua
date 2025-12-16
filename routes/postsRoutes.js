@@ -250,7 +250,7 @@ if (!req.file) {
   return res.status(400).json({ success: 0, message: "No file uploaded" });
 }
 
-const imageUrl = `${req.protocol}://${req.get("host")}/uploads/${req.file.filename}`;
+const imageUrl = `${process.env.BACKEND_URL}/uploads/${req.file.filename}`;;
 console.log("Image URL to send:", imageUrl);
 
 res.json({

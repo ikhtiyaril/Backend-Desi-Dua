@@ -84,7 +84,7 @@ router.post('/' ,upload.single('avatar'), async (req, res) => {
 
     let { name, email, phone, specialization, bio, avatar, Study } = req.body;
 if(req.file){
-    const fileUrl = `${req.protocol}://${req.get("host")}/uploads/${req.file.filename}`;
+const fileUrl = `${process.env.BACKEND_URL}/uploads/${req.file.filename}`;
     avatar = fileUrl
 }else {
       console.log("Tidak ada file yang dikirim atau multer gagal menangkap file");
@@ -155,7 +155,7 @@ router.put("/:id", upload.single("avatar"), async (req, res) => {
     let avatarUrl = doctor.avatar; // default: avatar lama
 
     if (req.file) {
-      avatarUrl = `${req.protocol}://${req.get("host")}/uploads/${req.file.filename}`;
+      avatarUrl = `${process.env.BACKEND_URL}/uploads/${req.file.filename}`;;
       console.log("Avatar BARU:", avatarUrl);
     } else {
       console.log("Tidak ada file yang dikirim → pakai avatar lama:", avatarUrl);

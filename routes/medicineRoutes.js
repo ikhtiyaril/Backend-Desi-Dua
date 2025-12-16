@@ -78,7 +78,7 @@ router.post("/admin/products", verifyToken, isAdmin, upload.single("image"), asy
     console.log("File object (req.file):", req.file);
 
     if (req.file) {
-      const fileUrl = `${req.protocol}://${req.get("host")}/uploads/${req.file.filename}`;
+      const fileUrl = `${process.env.BACKEND_URL}/uploads/${req.file.filename}`;;
       req.body.image_url = fileUrl;
       console.log("File URL yang di-generate:", fileUrl, req.body.image_url);
     } else {
@@ -104,7 +104,7 @@ router.put("/admin/products/:id", verifyToken, isAdmin, upload.single("image"), 
       return res.status(404).json({ success: false, message: "Produk tidak ditemukan." });
 
     if (req.file) {
-      const fileUrl = `${req.protocol}://${req.get("host")}/uploads/${req.file.filename}`;
+      const fileUrl = `${process.env.BACKEND_URL}/uploads/${req.file.filename}`;;
       req.body.image_url = fileUrl;
     }
 
