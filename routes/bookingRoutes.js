@@ -47,14 +47,14 @@ router.post('/', verifyToken, async (req, res) => {
 
     // ----- AUTO GENERATE BLOCKED TIME -----
     if (doctor_id) {
-      await BlockedTime.create({
-        doctor_id,
-        service_id,
-        date,
-        time_start,
-        time_end,
-        booking_id: booking.id   // kalau kolom ini ada
-      });
+     await BlockedTime.create({
+  doctor_id,
+  service_id,
+  date,
+  time_start,
+  time_end,
+  booked_by: booking.id   // ← ini wajib
+});
     }
 
     return res.status(201).json({

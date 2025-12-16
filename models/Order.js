@@ -27,6 +27,11 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true, 
         // contoh: "qris", "bank_transfer", "cod", dll
       },
+      order_code: {
+  type: DataTypes.STRING,
+  allowNull: false,
+},
+
     },
     {
       tableName: "orders",

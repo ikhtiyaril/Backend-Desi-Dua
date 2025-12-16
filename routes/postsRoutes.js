@@ -14,55 +14,73 @@ router.post("/", verifyToken, async (req, res) => {
       title,
       slug,
       excerpt,
-      content,
+      content, // JSON dari EditorJS
       thumbnail,
       category_id,
       status,
     } = req.body;
 
-    console.log("=== REQUEST BODY ===");
-    console.log(req.body);
+    /* ================= VALIDATION ================= */
 
-    // pastikan content format benar
-    const storedContent =
-      typeof content === "string" ? content : JSON.stringify(content || {});
-    console.log("=== STORED CONTENT ===");
-    console.log(storedContent);
+    // Title wajib
+    if (!title || !title.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Title is required",
+      });
+    }
 
-    // cek author_id dari token
-    console.log("=== AUTHOR ID FROM TOKEN ===");
-    console.log(req.user.id);
+    // Content wajib & harus object EditorJS
+    if (!content || typeof content !== "object") {
+      return res.status(400).json({
+        success: false,
+        message: "Content is invalid",
+      });
+    }
+
+    if (!Array.isArray(content.blocks) || content.blocks.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Content must have at least one block",
+      });
+    }
+
+    // Status valid
+    const allowedStatus = ["draft", "published"];
+    if (status && !allowedStatus.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status value",
+      });
+    }
+
+    /* ================= CREATE POST ================= */
 
     const post = await Post.create({
-      title,
-      slug: slug || undefined,
-      excerpt,
-      content: storedContent,
-      thumbnail,
-      category_id,
+      title: title.trim(),
+      slug: slug?.trim() || undefined,
+      excerpt: excerpt?.trim() || null,
+      content, // simpan JSON langsung
+      thumbnail: thumbnail || null,
+      category_id: category_id || null,
       author_id: req.user.id,
       status: status || "draft",
       published_at: status === "published" ? new Date() : null,
     });
 
-    console.log("=== POST CREATED ===");
-    console.log(post.toJSON());
-
-    // respons lengkap ke client
     res.status(201).json({
       success: true,
       data: post,
-      debug: {
-        requestBody: req.body,
-        storedContent,
-      },
     });
   } catch (err) {
-    console.error("=== ERROR OCCURRED ===");
     console.error(err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
   }
 });
+
 
 
 /* =========================================================
@@ -174,7 +192,7 @@ router.put("/:id", verifyToken, async (req, res) => {
       title,
       slug,
       excerpt,
-      content,
+      content, // JSON object
       thumbnail,
       category_id,
       status,
@@ -183,15 +201,11 @@ router.put("/:id", verifyToken, async (req, res) => {
     const post = await Post.findByPk(req.params.id);
     if (!post) return res.status(404).json({ message: "Post not found" });
 
-    // Content handling
-    const storedContent =
-      typeof content === "string" ? content : JSON.stringify(content || {});
-
     await post.update({
       title,
       slug: slug || post.slug,
       excerpt,
-      content: storedContent,
+      content, // simpan JSON
       thumbnail,
       category_id,
       status: status || post.status,
@@ -203,7 +217,6 @@ router.put("/:id", verifyToken, async (req, res) => {
 
     res.json({ success: true, data: post });
   } catch (err) {
-    console.log(err);
     res.status(500).json({ success: false, message: err.message });
   }
 });

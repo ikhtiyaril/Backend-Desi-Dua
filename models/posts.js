@@ -26,7 +26,7 @@ module.exports = (sequelize, DataTypes) => {
       // Editor.js biasanya keluarkan JSON — kamu bisa simpan sebagai TEXT('long')
       // atau pakai DataTypes.JSON jika MySQL/MariaDB kamu support JSON type.
       content: {
-        type: DataTypes.TEXT('long'),
+        type: DataTypes.JSON,
         allowNull: true,
       },
       thumbnail: {
