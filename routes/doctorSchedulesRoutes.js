@@ -2,15 +2,15 @@ const express = require('express');
 const router = express.Router();
 
 const { Doctor, DoctorSchedule } = require('../models');
-
+const verifyToken = require('../middleware/verifyToken')
 
 // CREATE schedule
 router.post('/', async (req, res) => {
   try {
-    const { doctor_id } = req.body;
+    const { doctor_id, day_of_week, start_time, end_time } = req.body;
 
-    if (!doctor_id) {
-      return res.status(400).json({ error: "doctor_id is required" });
+    if (!doctor_id || day_of_week === undefined) {
+      return res.status(400).json({ error: "doctor_id & day_of_week are required" });
     }
 
     const doctor = await Doctor.findByPk(doctor_id);
@@ -18,7 +18,27 @@ router.post('/', async (req, res) => {
       return res.status(404).json({ error: "Doctor not found" });
     }
 
-    const data = await DoctorSchedule.create(req.body);
+    // 🔒 VALIDASI: Cek apakah hari tsb sudah ada
+    const existingSchedule = await DoctorSchedule.findOne({
+      where: {
+        doctor_id,
+        day_of_week
+      }
+    });
+
+    if (existingSchedule) {
+      return res.status(409).json({
+        error: "Schedule for this day already exists"
+      });
+    }
+
+    const data = await DoctorSchedule.create({
+      doctor_id,
+      day_of_week,
+      start_time,
+      end_time
+    });
+
     res.status(201).json({ message: "Schedule created", data });
 
   } catch (error) {
@@ -26,6 +46,55 @@ router.post('/', async (req, res) => {
     res.status(500).json({ error: "Failed to create schedule" });
   }
 });
+
+router.put('/bulk-update', verifyToken, async (req, res) => {
+  const { days, start_time, end_time } = req.body;
+  const { id: doctor_id } = req.user;
+
+  if (!Array.isArray(days) || days.length === 0) {
+    return res.status(400).json({ error: "days must be a non-empty array" });
+  }
+
+  if (!start_time || !end_time) {
+    return res.status(400).json({ error: "start_time and end_time are required" });
+  }
+
+  try {
+    const updated = [];
+
+    for (const day of days) {
+      const [schedule, created] = await DoctorSchedule.findOrCreate({
+        where: {
+          doctor_id,
+          day_of_week: day
+        },
+        defaults: {
+          start_time,
+          end_time
+        }
+      });
+
+      if (!created) {
+        await schedule.update({
+          start_time,
+          end_time
+        });
+      }
+
+      updated.push(schedule);
+    }
+
+    res.json({
+      message: "Schedules updated successfully",
+      total: updated.length
+    });
+
+  } catch (error) {
+    console.error("Bulk update error:", error);
+    res.status(500).json({ error: "Failed to bulk update schedules" });
+  }
+});
+
 
 
 // GET all schedules
@@ -48,20 +117,20 @@ router.get('/', async (req, res) => {
 
 
 // GET schedules by doctor ID (simple)
-router.get('/doctor/:doctorId', async (req, res) => {
-  const { doctorId } = req.params;
-
-  console.log(`GET /doctor/${doctorId} - Fetching schedules...`);
+router.get('/me', verifyToken,async (req, res) => {
+  console.log('pegang ini')
+const {id} = req.user
+  console.log(`GET /doctor/${id} - Fetching schedules...`);
 
   try {
     const data = await DoctorSchedule.findAll({
-      where: { doctor_id: doctorId }
+      where: { doctor_id: id }
     });
 
     res.json(data);
 
   } catch (error) {
-    console.error(`[ERROR] GET /doctor/${doctorId} -`, error.message);
+    console.error(`[ERROR] GET /doctor/${id} -`, error.message);
     res.status(500).json({ error: "Failed to fetch doctor schedules", details: error.message });
   }
 });

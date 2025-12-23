@@ -1,6 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const { Doctor } = require('../models');
+const { Doctor, Booking } = require('../models');
 const sendEmail = require('../utils/sendmail');
 const jwt = require('jsonwebtoken');
 const verifyToken = require("../middleware/verifyToken");
@@ -52,6 +52,7 @@ router.post('/login', async (req, res) => {
         id: doctor.id,
         email: doctor.email,
         name: doctor.name,
+        avatar: doctor.avatar,
         role: "doctor"
       },
       process.env.JWT_SECRET,
@@ -126,16 +127,74 @@ router.get('/', async (req, res) => {
 });
 
 // Read one doctor by id
-router.get('/:id', async (req, res) => {
+router.get("/me", verifyToken, async (req, res) => {
+  console.log("=== HIT /me ===");
+
   try {
-    const doctor = await Doctor.findByPk(req.params.id);
-    if (!doctor) return res.status(404).json({ message: 'Dokter tidak ditemukan' });
-    res.json({ success: true, data: doctor });
+    console.log("req.user:", req.user);
+
+    if (!req.user || !req.user.id) {
+      console.log("❌ req.user kosong atau id tidak ada");
+      return res.status(401).json({
+        message: "Unauthorized - user tidak valid",
+      });
+    }
+
+    const id = req.user.id;
+    console.log("Doctor ID:", id);
+
+    const doctor = await Doctor.findByPk(id, {
+      include: [{ model: Booking }],
+    });
+
+    console.log("Doctor result:", doctor);
+
+    if (!doctor) {
+      console.log("❌ Doctor tidak ditemukan");
+      return res.status(404).json({
+        message: "Dokter tidak ditemukan",
+      });
+    }
+
+    res.json({
+      success: true,
+      data: doctor,
+    });
+
   } catch (err) {
-    res.status(500).json({ message: 'Gagal mengambil dokter', error: err.message });
+    console.error("🔥 /me ERROR FULL:", err);
+
+    res.status(500).json({
+      message: "Gagal mengambil dokter",
+      error: err.message,
+    });
   }
 });
 
+
+router.put('/status', verifyToken, async (req, res) => {
+  try {
+    console.log('kenatipis /status')
+    const { isActive } = req.body;
+    const { id } = req.user;
+
+    const doctor = await Doctor.findByPk(id);
+    
+    if (!doctor) {
+      return res.status(404).json({ message: 'Doctor not found' });
+    }
+
+    await doctor.update({ isActive });
+
+    res.json({
+      success: true,
+      isActive: doctor.isActive,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Update status failed' });
+  }
+});
 // Update doctor
 router.put("/:id", upload.single("avatar"), async (req, res) => {
   try {
@@ -265,5 +324,9 @@ router.post('/reset-password', async (req, res) => {
     res.status(500).json({ message: 'Gagal memperbarui password', error: err.message });
   }
 });
+
+
+
+
 
 module.exports = router;

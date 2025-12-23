@@ -20,7 +20,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     booked_by: {
       type: DataTypes.INTEGER,
-       defaultValue: 1  // FK ke booking_id
+       allowNull :true  // FK ke booking_id
     }
   }, {
     tableName: 'blocked_times',
@@ -34,9 +34,12 @@ module.exports = (sequelize, DataTypes) => {
 
  
 
-    BlockedTime.belongsTo(models.Booking, {
-      foreignKey: 'booked_by'
-    });
+   BlockedTime.belongsTo(models.Booking, {
+  foreignKey: 'booked_by',
+  onDelete: 'SET NULL',
+  onUpdate: 'CASCADE'
+});
+
   };
 
   return BlockedTime;

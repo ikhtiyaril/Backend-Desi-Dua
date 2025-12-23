@@ -58,6 +58,7 @@ app.use('/api/categories',require('./routes/categoryRoutes'))
 app.use('/api/posts',require('./routes/postsRoutes'))
 app.use('/api/call',require('./routes/callRoutes'))
 app.use('/api/payment',require('./routes/paymentRoutes'))
+app.use('/api/medical-record',require('./routes/medicalRecordRoutes'))
 
 
 
@@ -70,7 +71,7 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 
 
-db.sequelize.sync()
+db.sequelize.sync({alter:true})
 .then(() => console.log('Database synced!'))
 .catch(err => console.error('Failed to sync database:', err));
 

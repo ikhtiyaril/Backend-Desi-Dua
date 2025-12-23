@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { Booking, Service, Doctor, User , BlockedTime } = require('../models'); // pastikan path sesuai
+const { Booking, Service, Doctor, User , BlockedTime,MedicalRecord } = require('../models'); // pastikan path sesuai
 const { Op } = require('sequelize');
 const verifyToken = require("../middleware/verifyToken");
 
@@ -141,6 +141,128 @@ router.get("/me", verifyToken, async (req, res) => {
 });
 
 
+router.get("/doctor/revenue", verifyToken, async (req, res) => {
+  console.log("===== [GET] /doctor/revenue =====");
+
+  try {
+    // ===============================
+    // 1️⃣ Debug user dari token
+    // ===============================
+    console.log("[DEBUG] req.user:", req.user);
+
+    const userId = req.user?.id;
+    const role = req.user?.role;
+
+    if (!userId || !role) {
+      console.log("[ERROR] Token decoded but missing userId / role");
+      return res.status(401).json({
+        message: "Invalid token payload",
+      });
+    }
+
+    if (role !== "doctor") {
+      console.log(`[DENIED] User ${userId} role=${role}`);
+      return res.status(403).json({
+        message: "Access denied. Doctor only.",
+      });
+    }
+
+    // ===============================
+    // 2️⃣ Query Booking
+    // ===============================
+    console.log("[DEBUG] Fetching bookings for doctor_id:", userId);
+
+    const bookings = await Booking.findAll({
+      where: {
+        doctor_id: userId,
+        status: ["confirmed", "completed"],
+        payment_status: "paid",
+      },
+      include: [
+        {
+          model: Service,
+          attributes: ["price", "is_live", "name"],
+        },
+      ],
+    });
+
+    console.log("[DEBUG] bookings.length:", bookings.length);
+
+    if (bookings.length === 0) {
+      console.log("[INFO] No paid bookings found");
+    }
+
+    // ===============================
+    // 3️⃣ Revenue Calculation
+    // ===============================
+    let totalDoctorIncome = 0;
+    let totalAppIncome = 0;
+
+    const detail = bookings.map((booking, index) => {
+      if (!booking.Service) {
+        console.log(
+          `[WARN] Booking ${booking.id} has NO service relation`
+        );
+        return null;
+      }
+
+      const price = booking.Service.price;
+      const isLive = booking.Service.is_live;
+
+      const doctorPercent = isLive ? 0.7 : 0.9;
+      const appPercent = isLive ? 0.3 : 0.1;
+
+      const doctorIncome = price * doctorPercent;
+      const appIncome = price * appPercent;
+
+      totalDoctorIncome += doctorIncome;
+      totalAppIncome += appIncome;
+
+      console.log(`[DEBUG][${index}]`, {
+        booking_code: booking.booking_code,
+        service: booking.Service.name,
+        price,
+        isLive,
+        doctorIncome,
+        appIncome,
+      });
+
+      return {
+        booking_code: booking.booking_code,
+        service_name: booking.Service.name,
+        is_live: isLive,
+        price,
+        doctor_income: doctorIncome,
+        app_income: appIncome,
+      };
+    }).filter(Boolean); // buang null kalau service missing
+
+    // ===============================
+    // 4️⃣ Final Response
+    // ===============================
+    console.log("[DEBUG] totalDoctorIncome:", totalDoctorIncome);
+    console.log("[DEBUG] totalAppIncome:", totalAppIncome);
+
+    return res.json({
+      doctor_id: userId,
+      total_doctor_income: totalDoctorIncome,
+      total_app_income: totalAppIncome,
+      total_booking: detail.length,
+      detail,
+    });
+
+  } catch (error) {
+    console.error("🔥 [ERROR] Revenue Calculation Failed");
+    console.error(error);
+
+    return res.status(500).json({
+      message: "Failed to calculate revenue",
+      error: error.message, // ⬅️ penting waktu debug
+    });
+  }
+});
+
+
 router.get("/doctor", verifyToken, async (req, res) => {
   console.log("===== /doctor route hit =====");
 
@@ -257,31 +379,68 @@ router.delete('/:id', async (req, res) => {
 });
 
 // Ubah status booking
+
 router.patch("/:id/status", async (req, res) => {
+  const transaction = await Booking.sequelize.transaction();
+
   try {
     const { id } = req.params;
     const { status } = req.body;
 
-    const allowed = ["pending", "confirmed", "cancelled", "completed"];
-    if (!allowed.includes(status)) {
-      return res.status(400).json({ message: "Status tidak valid" });
+    const allowedStatus = ["pending", "confirmed", "cancelled", "completed"];
+    if (!allowedStatus.includes(status)) {
+      return res.status(400).json({ message: "Invalid status value" });
     }
 
-    const booking = await Booking.findByPk(id);
+    const booking = await Booking.findByPk(id, {
+      include: [
+        {
+          model: MedicalRecord,
+          as: "medicalRecord"
+        }
+      ],
+      transaction
+    });
+
     if (!booking) {
-      return res.status(404).json({ message: "Booking tidak ditemukan" });
+      return res.status(404).json({ message: "Booking not found" });
     }
 
+    // Update status
     booking.status = status;
-    await booking.save();
+    await booking.save({ transaction });
 
-    return res.json({ message: "Status updated", booking });
+    // 🔥 AUTO CREATE MEDICAL RECORD WHEN CONFIRMED
+    if (status === "confirmed" && !booking.medicalRecord) {
+      await MedicalRecord.create(
+        {
+          booking_id: booking.id,
+          patient_id: booking.patient_id,
+          doctor_id: booking.doctor_id,
+          subjective: null,
+          objective: null,
+          assessment: null,
+          plan: null
+        },
+        { transaction }
+      );
+    }
+
+    await transaction.commit();
+
+    return res.json({
+      message: "Booking status updated successfully",
+      booking
+    });
   } catch (err) {
+    await transaction.rollback();
     console.error(err);
-    res.status(500).json({ message: "Gagal update status", error: err.message });
+    res.status(500).json({
+      message: "Failed to update booking status",
+      error: err.message
+    });
   }
 });
-
 
 
 module.exports = router;
