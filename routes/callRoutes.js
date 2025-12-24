@@ -24,7 +24,7 @@ router.get('/:booking_id', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Booking not found' });
     }
 
-    if (book.patient_id !== id) {
+    if (book.patient_id !== id || book.doctor_id !== id) {
       console.log("❌ Patient not authorized:", { patient_id: book.patient_id, user_id: id });
       return res.status(403).json({ error: 'Not authorized' });
     }
