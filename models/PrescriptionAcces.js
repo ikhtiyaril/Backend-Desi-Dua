@@ -26,6 +26,11 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.TEXT,
         allowNull: true,
       },
+      prescription_image: {
+  type: DataTypes.STRING,
+  allowNull: true,
+}
+
     },
     {
       tableName: "prescription_access",

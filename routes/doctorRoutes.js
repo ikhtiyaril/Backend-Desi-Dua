@@ -247,6 +247,31 @@ router.put("/:id", upload.single("avatar"), async (req, res) => {
   }
 });
 
+router.get('/detail/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const doctor = await Doctor.findByPk(id);
+
+    if (!doctor) {
+      return res.status(404).json({
+        success: false,
+        message: 'Dokter tidak ditemukan'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: doctor
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: 'Gagal mengambil detail dokter',
+      error: err.message
+    });
+  }
+});
 // Delete doctor
 router.delete('/:id', async (req, res) => {
   try {

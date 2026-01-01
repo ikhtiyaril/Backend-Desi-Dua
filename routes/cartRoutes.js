@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 
-const { Cart, CartItem, Medicine } = require("../models");
+const { Cart, CartItem, Medicine,PrescriptionAccess } = require("../models");
 const verifyToken = require("../middleware/verifyToken");
 
 
@@ -147,4 +147,88 @@ router.delete("/clear", verifyToken, async (req, res) => {
 });
 
 
+
+router.get("/validate", verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const cart = await Cart.findOne({
+      where: { user_id: userId },
+      include: [
+        {
+          model: CartItem,
+          as: "items", // ✅ SESUAI Cart.hasMany as: "items"
+          include: [
+            {
+              model: Medicine,
+              as: "product", // ✅ SESUAI CartItem.belongsTo as: "product"
+            },
+          ],
+        },
+      ],
+    });
+
+    // =========================
+    // CART KOSONG
+    // =========================
+    if (!cart || cart.items.length === 0) {
+      return res.json({
+        valid: false,
+        message: "Cart kosong",
+      });
+    }
+
+    const errors = [];
+
+    for (const item of cart.items) {
+      const medicine = item.product; // ✅ BENAR
+
+      // =========================
+      // STOCK CHECK
+      // =========================
+      if (medicine.stock < item.quantity) {
+        errors.push({
+          medicineId: medicine.id,
+          type: "stock",
+          message: "Stok tidak mencukupi",
+        });
+      }
+
+      // =========================
+      // PRESCRIPTION CHECK
+      // =========================
+      if (medicine.is_prescription_required) {
+        const access = await PrescriptionAccess.findOne({
+          where: {
+            user_id: userId,
+            product_id: medicine.id,
+            status: "approved",
+          },
+        });
+
+        if (!access) {
+          errors.push({
+            medicineId: medicine.id,
+            type: "prescription",
+            message: "Belum memiliki akses resep",
+          });
+        }
+      }
+    }
+
+    return res.json({
+      valid: errors.length === 0,
+      errors,
+    });
+  } catch (error) {
+    console.error("VALIDATE CART ERROR:", error);
+    return res.status(500).json({
+      message: "Terjadi kesalahan pada server",
+    });
+  }
+});
+
+
 module.exports = router;
+
+
