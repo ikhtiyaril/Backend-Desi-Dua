@@ -4,139 +4,356 @@ const express = require('express');
 const route = express.Router();
 const { User } = require('../models');
 const sendEmail = require('../utils/sendmail')
+const crypto = require('crypto');
 
+
+const MAX_ATTEMPT = 3;
+const LOCK_TIME = 5 * 60 * 1000; // 5 menit
+
+const VERIF_EXP_MS = 24 * 60 * 60 * 1000; // 24 jam
+const RESEND_COOLDOWN_MS = 5 * 60 * 1000; // contoh: 5 menit antara permintaan resend
+
+function genTokenAndHash() {
+  const token = crypto.randomBytes(32).toString('hex'); // 64 chars
+  const hash = crypto.createHash('sha256').update(token).digest('hex');
+  return { token, hash };
+}
 
 route.post('/login', async (req, res) => {
   try {
-    console.log('[LOGIN] req.body:', req.body);
-
     const { email, password } = req.body;
 
     if (!email || !password) {
-      console.log('[LOGIN] Missing email or password');
       return res.status(400).json({ message: 'Email atau password kosong' });
     }
 
-    const data = await User.findOne({ where: { email } });
-    console.log('[LOGIN] Found user:', data);
+    const user = await User.findOne({ where: { email } });
 
-    if (!data) {
-      console.log('[LOGIN] Email not found');
+    if (!user) {
       return res.status(400).json({ message: 'Email tidak ditemukan' });
     }
 
-    const valid = await bcrypt.compare(password, data.password);
-    console.log('[LOGIN] Password valid:', valid);
+    // 🔒 CEK AKUN TERKUNCI
+    if (user.lock_until && new Date(user.lock_until) > new Date()) {
+      const sisa = Math.ceil(
+        (new Date(user.lock_until) - new Date()) / 60000
+      );
 
-    if (!valid) {
-      console.log('[LOGIN] Invalid password');
-      return res.status(400).json({ message: 'Password salah' });
+      return res.status(403).json({
+        message: `Akun dikunci. Coba lagi ${sisa} menit`,
+        locked: true,
+      });
     }
 
-    const payload = { name: data.name, email, role: data.role, id: data.id,phone: data.phone };
-    const token = JWT.sign(payload, process.env.JWT_SECRET, { expiresIn: '30d' });
+    const valid = await bcrypt.compare(password, user.password);
 
-    console.log('[LOGIN] Login successful, token generated');
+    // ❌ PASSWORD SALAH
+    if (!valid) {
+      const attempt = user.failed_login_attempt + 1;
+
+      // LOCK AKUN
+      if (attempt >= MAX_ATTEMPT) {
+        await user.update({
+          failed_login_attempt: attempt,
+          lock_until: new Date(Date.now() + LOCK_TIME),
+        });
+
+        return res.status(403).json({
+          message: 'Terlalu banyak percobaan. Akun dikunci 5 menit',
+          locked: true,
+        });
+      }
+
+      await user.update({ failed_login_attempt: attempt });
+
+      return res.status(400).json({
+        message: `Password salah (${attempt}/${MAX_ATTEMPT})`,
+      });
+    }
+
+    // ✅ LOGIN BERHASIL → RESET
+    await user.update({
+      failed_login_attempt: 0,
+      lock_until: null,
+    });
+
+    const payload = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      phone: user.phone,
+    };
+
+    const token = JWT.sign(payload, process.env.JWT_SECRET, {
+      expiresIn: '30d',
+    });
 
     return res.json({ token, message: 'Login berhasil' });
+
   } catch (err) {
-    console.error('[LOGIN] Error:', err);
-    return res.status(500).json({ message: 'Login gagal', error: err.message });
+    console.error(err);
+    return res.status(500).json({ message: 'Login gagal' });
   }
 });
 
+
 route.post('/login/admin', async (req, res) => {
   try {
-    console.log('[ADMIN LOGIN] req.body:', req.body);
-
     const { email, password } = req.body;
 
     if (!email || !password) {
-      console.log('[ADMIN LOGIN] Missing email or password');
       return res.status(400).json({ message: 'Email atau password kosong' });
     }
 
-    const data = await User.findOne({ where: { email } });
-    console.log('[ADMIN LOGIN] Found user:', data);
+    const user = await User.findOne({ where: { email } });
 
-    if (!data) {
-      console.log('[ADMIN LOGIN] Email not found');
+    if (!user) {
       return res.status(400).json({ message: 'Email tidak ditemukan' });
     }
 
-    // cek role admin
-    if (data.role !== 'admin') {
-      console.log('[ADMIN LOGIN] Unauthorized role:', data.role);
-      return res.status(403).json({ message: 'Anda tidak memiliki akses sebagai admin' });
+    if (user.role !== 'admin') {
+      return res.status(403).json({ message: 'Bukan akun admin' });
     }
 
-    const valid = await bcrypt.compare(password, data.password);
-    console.log('[ADMIN LOGIN] Password valid:', valid);
+    // 🔒 CEK LOCK
+    if (user.lock_until && new Date(user.lock_until) > new Date()) {
+      const sisa = Math.ceil(
+        (new Date(user.lock_until) - new Date()) / 60000
+      );
+
+      return res.status(403).json({
+        message: `Akun admin dikunci. Coba lagi ${sisa} menit`,
+        locked: true,
+      });
+    }
+
+    const valid = await bcrypt.compare(password, user.password);
 
     if (!valid) {
-      console.log('[ADMIN LOGIN] Invalid password');
-      return res.status(400).json({ message: 'Password salah' });
+      const attempt = user.failed_login_attempt + 1;
+
+      if (attempt >= MAX_ATTEMPT) {
+        await user.update({
+          failed_login_attempt: attempt,
+          lock_until: new Date(Date.now() + LOCK_TIME),
+        });
+
+        return res.status(403).json({
+          message: 'Akun admin dikunci 5 menit',
+          locked: true,
+        });
+      }
+
+      await user.update({ failed_login_attempt: attempt });
+
+      return res.status(400).json({
+        message: `Password salah (${attempt}/${MAX_ATTEMPT})`,
+      });
     }
 
-    const payload = { 
-      name: data.name, 
-      email, 
-      role: data.role 
+    // RESET
+    await user.update({
+      failed_login_attempt: 0,
+      lock_until: null,
+    });
+
+    const payload = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
     };
 
-    const token = JWT.sign(payload, process.env.JWT_SECRET, { expiresIn: '1d' });
-
-    console.log('[ADMIN LOGIN] Login successful, token generated');
+    const token = JWT.sign(payload, process.env.JWT_SECRET, {
+      expiresIn: '1d',
+    });
 
     return res.json({ token, message: 'Login admin berhasil' });
 
   } catch (err) {
-    console.error('[ADMIN LOGIN] Error:', err);
-    return res.status(500).json({ message: 'Login admin gagal', error: err.message });
+    console.error(err);
+    return res.status(500).json({ message: 'Login admin gagal' });
   }
 });
 
-
 route.post('/register', async (req, res) => {
   try {
-    console.log('[REGISTER] req.body:', req.body);
-
     const { email, password, phone, name } = req.body;
+    console.log('[DEBUG] Request Body:', req.body);
 
     if (!email || !password || !phone || !name) {
-      console.log('[REGISTER] Missing required fields');
+      console.log('[DEBUG] Missing field:', { email, password, phone, name });
       return res.status(400).json({ message: 'Email, password, nomor telepon, dan nama wajib diisi' });
     }
 
     const existingEmail = await User.findOne({ where: { email } });
-    console.log('[REGISTER] existingEmail:', existingEmail);
-
-    if (existingEmail) {
-      console.log('[REGISTER] Email already used');
-      return res.status(400).json({ message: 'Email sudah digunakan' });
-    }
+    console.log('[DEBUG] existingEmail:', existingEmail ? true : false);
+    if (existingEmail) return res.status(400).json({ message: 'Email sudah digunakan' });
 
     const existingPhone = await User.findOne({ where: { phone } });
-    console.log('[REGISTER] existingPhone:', existingPhone);
-
-    if (existingPhone) {
-      console.log('[REGISTER] Phone already used');
-      return res.status(400).json({ message: 'Nomor telepon sudah digunakan' });
-    }
+    console.log('[DEBUG] existingPhone:', existingPhone ? true : false);
+    if (existingPhone) return res.status(400).json({ message: 'Nomor telepon sudah digunakan' });
 
     const salt = await bcrypt.genSalt(10);
-    console.log('[REGISTER] Salt generated');
+    const hashPassword = await bcrypt.hash(password, salt);
+    console.log('[DEBUG] Hashed password:', hashPassword);
 
-    const hash = await bcrypt.hash(password, salt);
-    console.log('[REGISTER] Password hashed:', hash);
+    // buat token verifikasi
+    const { token, hash } = genTokenAndHash();
+    console.log('[DEBUG] Token & hash:', { token, hash });
+    const verifyExp = new Date(Date.now() + VERIF_EXP_MS);
+    console.log('[DEBUG] verifyExp:', verifyExp);
 
-    const user = await User.create({ email, password: hash, name, phone, role: 'patient' });
-    console.log('[REGISTER] User created:', user.toJSON());
+    // create user (is_verified false by default)
+    const user = await User.create({
+      email,
+      password: hashPassword,
+      name,
+      phone,
+      role: 'patient',
+      is_verified: false,
+      verify_token: hash,
+      verify_token_exp: verifyExp
+    });
+    console.log('[DEBUG] User created:', user.id);
 
-    return res.json({ success: true, message: 'Register berhasil', user });
+    // kirim email verifikasi (link berisi token mentah)
+    const verifyLink = `${process.env.DOMAIN_FE_CLIENT || 'https://your-frontend.com'}verify-account?token=${token}&email=${encodeURIComponent(email)}`;
+    console.log('[DEBUG] Verify link:', verifyLink);
+
+    try {
+      await sendEmail({
+        to: email,
+        subject: 'Verifikasi Email - Klinik',
+        html: `
+          <p>Halo ${name},</p>
+          <p>Silakan klik link berikut untuk verifikasi email kamu (berlaku 24 jam):</p>
+          <p><a href="${verifyLink}">${verifyLink}</a></p>
+          <p>Jika kamu tidak membuat akun, abaikan email ini.</p>
+        `
+      });
+      console.log('[DEBUG] Email sent to:', email);
+    } catch (emailErr) {
+      console.error('[DEBUG] Email failed:', emailErr);
+    }
+
+    return res.json({ success: true, message: 'Akun dibuat. Cek email untuk verifikasi.' });
+
   } catch (err) {
     console.error('[REGISTER] Error:', err);
     return res.status(500).json({ message: 'Register gagal', error: err.message });
+  }
+});
+
+// bisa GET atau POST. POST lebih aman (token di body).
+route.post('/verify-email', async (req, res) => {
+  try {
+    const { email, token } = req.body;
+    if (!email || !token) return res.status(400).json({ message: 'Email dan token diperlukan' });
+
+    const user = await User.findOne({ where: { email } });
+    if (!user) return res.status(400).json({ message: 'User tidak ditemukan' });
+
+    if (user.is_verified) return res.json({ success: true, message: 'Akun sudah terverifikasi' });
+
+    // compare hashed token
+    const hash = crypto.createHash('sha256').update(token).digest('hex');
+    if (!user.verify_token || user.verify_token !== hash) {
+      return res.status(400).json({ message: 'Token verifikasi tidak valid' });
+    }
+
+    if (user.verify_token_exp && new Date() > new Date(user.verify_token_exp)) {
+      return res.status(400).json({ message: 'Token verifikasi sudah kedaluwarsa' });
+    }
+
+    // tandai verified dan bersihkan token
+    await user.update({ is_verified: true, verify_token: null, verify_token_exp: null });
+
+    return res.json({ success: true, message: 'Email berhasil diverifikasi' });
+  } catch (err) {
+    console.error('[VERIFY EMAIL] Error:', err);
+    return res.status(500).json({ message: 'Gagal verifikasi email', error: err.message });
+  }
+});
+
+route.post('/resend-verification', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: 'Email diperlukan' });
+
+    const user = await User.findOne({ where: { email } });
+    if (!user) return res.status(400).json({ message: 'User tidak ditemukan' });
+    if (user.is_verified) return res.status(400).json({ message: 'Akun sudah terverifikasi' });
+
+    // optional: simple cooldown check using verify_token_exp (abuse workaround)
+    if (user.verify_token_exp && new Date(user.verify_token_exp) - Date.now() > VERIF_EXP_MS - RESEND_COOLDOWN_MS) {
+      // jika token baru saja dibuat, block resend sebentar
+      return res.status(429).json({ message: 'Tunggu sebelum meminta verifikasi ulang (cooldown)' });
+    }
+
+    const { token, hash } = genTokenAndHash();
+    const verifyExp = new Date(Date.now() + VERIF_EXP_MS);
+
+    await user.update({ verify_token: hash, verify_token_exp: verifyExp });
+
+    const verifyLink = `${process.env.FRONTEND_URL || 'https://your-frontend.com'}verify-account?token=${token}&email=${encodeURIComponent(email)}`;
+
+    await sendEmail({
+      to: email,
+      subject: 'Resend Verifikasi Email - Klinik',
+      html: `
+        <p>Halo ${user.name},</p>
+        <p>Silakan klik link berikut untuk verifikasi email kamu (berlaku 24 jam):</p>
+        <p><a href="${verifyLink}">${verifyLink}</a></p>
+      `
+    });
+
+    return res.json({ success: true, message: 'Email verifikasi dikirim ulang' });
+  } catch (err) {
+    console.error('[RESEND VERIFY] Error:', err);
+    return res.status(500).json({ message: 'Gagal mengirim ulang', error: err.message });
+  }
+});
+
+route.get('/register/verify', async (req, res) => {
+  try {
+    const { token, email } = req.query; // ambil dari link query
+
+    if (!token || !email) {
+      return res.status(400).json({ message: 'Token dan email diperlukan' });
+    }
+
+    const user = await User.findOne({ where: { email } });
+    if (!user) return res.status(400).json({ message: 'User tidak ditemukan' });
+
+    if (user.is_verified) {
+      return res.json({ success: true, message: 'Akun sudah terverifikasi' });
+    }
+
+    // hash token dari link agar bisa dicocokkan dengan database
+    const hash = crypto.createHash('sha256').update(token).digest('hex');
+
+    if (!user.verify_token || user.verify_token !== hash) {
+      return res.status(400).json({ message: 'Token verifikasi tidak valid' });
+    }
+
+    if (user.verify_token_exp && new Date() > new Date(user.verify_token_exp)) {
+      return res.status(400).json({ message: 'Token verifikasi sudah kedaluwarsa' });
+    }
+
+    // tandai akun verified dan bersihkan token
+    await user.update({
+      is_verified: true,
+      verify_token: null,
+      verify_token_exp: null
+    });
+
+    return res.json({ success: true, message: 'Email berhasil diverifikasi' });
+
+  } catch (err) {
+    console.error('[VERIFY EMAIL LINK] Error:', err);
+    return res.status(500).json({ message: 'Gagal verifikasi email', error: err.message });
   }
 });
 

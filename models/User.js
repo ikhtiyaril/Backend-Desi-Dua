@@ -36,6 +36,28 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         allowNull: true,
       },
+      failed_login_attempt: {
+  type: DataTypes.INTEGER,
+  defaultValue: 0,
+},
+
+lock_until: {
+  type: DataTypes.DATE,
+  allowNull: true,
+},
+is_verified: {
+  type: DataTypes.BOOLEAN,
+  defaultValue: false,
+},
+verify_token: {
+  type: DataTypes.STRING,
+  allowNull: true,
+},
+verify_token_exp: {
+  type: DataTypes.DATE,
+  allowNull: true,
+},
+
     },
     {
       tableName: 'Users',
