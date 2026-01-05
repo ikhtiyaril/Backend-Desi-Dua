@@ -146,15 +146,23 @@ router.post("/doctor/withdraw", verifyToken, async (req, res) => {
 
   try {
     const { amount, bank_name, bank_account, account_name } = req.body;
-    const userId = req.user?.id;
-    const role = req.user?.role;
+    const userId = req.user.id;
 
-    if (role !== "doctor") {
+    if (req.user.role !== "doctor") {
+      await transaction.rollback();
       return res.status(403).json({ message: "Doctor only" });
     }
 
-    if (!amount || amount <= 0) {
+    const withdrawAmount = Number(amount);
+
+    if (!withdrawAmount || withdrawAmount <= 0) {
+      await transaction.rollback();
       return res.status(400).json({ message: "Invalid withdraw amount" });
+    }
+
+    if (!bank_name || !bank_account || !account_name) {
+      await transaction.rollback();
+      return res.status(400).json({ message: "Bank data incomplete" });
     }
 
     const wallet = await WalletDoctor.findOne({
@@ -163,21 +171,28 @@ router.post("/doctor/withdraw", verifyToken, async (req, res) => {
       lock: transaction.LOCK.UPDATE,
     });
 
-    if (!wallet || Number(wallet.balance) < amount) {
+    if (!wallet) {
+      await transaction.rollback();
+      return res.status(404).json({ message: "Wallet not found" });
+    }
+
+    if (Number(wallet.balance) < withdrawAmount) {
       await transaction.rollback();
       return res.status(400).json({
         message: "Insufficient wallet balance",
       });
     }
 
+    // ===============================
     // HOLD SALDO
-    wallet.balance = Number(wallet.balance) - amount;
+    // ===============================
+    wallet.balance = Number(wallet.balance) - withdrawAmount;
     await wallet.save({ transaction });
 
     const withdraw = await WithdrawRequest.create(
       {
         doctor_id: userId,
-        amount,
+        amount: withdrawAmount,
         bank_name,
         bank_account,
         account_name,
@@ -196,13 +211,15 @@ router.post("/doctor/withdraw", verifyToken, async (req, res) => {
     });
   } catch (error) {
     await transaction.rollback();
-    console.error(error);
-    res.status(500).json({
+    console.error("WITHDRAW ERROR:", error);
+
+    return res.status(500).json({
       message: "Failed to request withdraw",
       error: error.message,
     });
   }
 });
+
 
 router.put(
   "/admin/withdraw/:id",
