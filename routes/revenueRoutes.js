@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { Booking, Service, Doctor, User , BlockedTime,MedicalRecord ,WalletDoctor} = require('../models'); // pastikan path sesuai
+const { Booking, Service, Doctor, User , BlockedTime,MedicalRecord ,WalletDoctor , WithdrawRequest} = require('../models'); // pastikan path sesuai
 const { Op } = require('sequelize');
 const verifyToken = require("../middleware/verifyToken");
 const upload = require("../middleware/cbUploads");
@@ -16,54 +16,65 @@ router.get("/doctor/wallet", verifyToken, async (req, res) => {
     }
 
     // ===============================
-    // 1️⃣ Wallet
+    // 1️⃣ WALLET (SALDO REAL)
     // ===============================
     const wallet = await WalletDoctor.findOne({
       where: { doctor_id: userId },
     });
 
-    const balance = wallet?.balance || 0;
+    const balance = Number(wallet?.balance || 0);
 
     // ===============================
-    // 2️⃣ Wallet Transactions (INCOME)
+    // 2️⃣ AMBIL BOOKING SELESAI & PAID
     // ===============================
-    const transactions = await WalletTransaction.findAll({
+    const bookings = await Booking.findAll({
       where: {
         doctor_id: userId,
-        type: "credit",
-        source: "booking",
+        status: "completed",
+        payment_status: "paid",
       },
+      include: [
+        {
+          model: Service,
+          attributes: ["name", "price", "is_live"],
+        },
+      ],
       order: [["created_at", "DESC"]],
     });
 
     let totalDoctorIncome = 0;
     let totalAppIncome = 0;
 
-    const detail = transactions.map((trx) => {
-      const price = trx.service_price;
-      const isLive = trx.is_live;
+    const detail = bookings.map((booking) => {
+      if (!booking.Service) return null;
+
+      const price = Number(booking.Service.price);
+      const isLive = booking.Service.is_live;
 
       // ===============================
-      // 3️⃣ Revenue Rule
+      // 3️⃣ RULE PEMBAGIAN
       // ===============================
       const doctorPercent = isLive ? 0.7 : 0.9;
       const appPercent = isLive ? 0.3 : 0.1;
 
-      const doctorIncome = trx.doctor_income;
-      const appIncome = trx.app_income;
+      const doctorIncome = price * doctorPercent;
+      const appIncome = price * appPercent;
 
       totalDoctorIncome += doctorIncome;
       totalAppIncome += appIncome;
 
       return {
-        transaction_id: trx.id,
-        service_name: trx.service_name,
-        service_type: isLive ? "Live Consultation" : "Non-Live Service",
+        booking_id: booking.id,
+        booking_code: booking.booking_code,
+
+        service_name: booking.Service.name,
+        service_type: isLive ? "LIVE" : "OFFLINE",
+
         price,
 
         revenue_split: {
-          doctor_percent: doctorPercent * 100 + "%",
-          app_percent: appPercent * 100 + "%",
+          doctor_percent: `${doctorPercent * 100}%`,
+          app_percent: `${appPercent * 100}%`,
         },
 
         revenue_amount: {
@@ -71,28 +82,31 @@ router.get("/doctor/wallet", verifyToken, async (req, res) => {
           app_income: appIncome,
         },
 
-        created_at: trx.created_at,
+        completed_at: booking.updated_at,
       };
-    });
+    }).filter(Boolean);
 
     // ===============================
-    // 4️⃣ Response
+    // 4️⃣ RESPONSE
     // ===============================
     return res.json({
       doctor_id: userId,
+
       wallet_balance: balance,
+
       summary: {
         total_doctor_income: totalDoctorIncome,
         total_app_income: totalAppIncome,
         total_transaction: detail.length,
       },
+
       transactions: detail,
     });
 
   } catch (error) {
-    console.error(error);
+    console.error("❌ Wallet Error:", error);
     return res.status(500).json({
-      message: "Failed to load finance data",
+      message: "Failed to load wallet data",
       error: error.message,
     });
   }
