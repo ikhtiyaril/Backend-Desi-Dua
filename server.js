@@ -63,6 +63,7 @@ app.use('/api/payment',require('./routes/paymentRoutes'))
 app.use('/api/medical-record',require('./routes/medicalRecordRoutes'))
 app.use('/api/clinic-profile',require('./routes/clinicProfileRoutes'))
 app.use("/api/shipping", require('./routes/shippingRegionalRoutes'));
+app.use("/api/revenue", require('./routes/revenueRoutes'));
 
 
 

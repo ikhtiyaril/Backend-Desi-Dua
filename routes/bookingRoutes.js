@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { Booking, Service, Doctor, User , BlockedTime,MedicalRecord } = require('../models'); // pastikan path sesuai
+const { Booking, Service, Doctor, User , BlockedTime,MedicalRecord,WalletDoctor } = require('../models'); // pastikan path sesuai
 const { Op } = require('sequelize');
 const verifyToken = require("../middleware/verifyToken");
 
@@ -380,6 +380,7 @@ router.delete('/:id', async (req, res) => {
 
 // Ubah status booking
 
+
 router.patch("/:id/status", async (req, res) => {
   const transaction = await Booking.sequelize.transaction();
 
@@ -396,21 +397,30 @@ router.patch("/:id/status", async (req, res) => {
       include: [
         {
           model: MedicalRecord,
-          as: "medicalRecord"
-        }
+          as: "medicalRecord",
+        },
+        {
+          model: Service,
+        },
       ],
-      transaction
+      transaction,
+      lock: transaction.LOCK.UPDATE,
     });
 
     if (!booking) {
+      await transaction.rollback();
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    // Update status
+    // ===============================
+    // UPDATE STATUS
+    // ===============================
     booking.status = status;
     await booking.save({ transaction });
 
-    // 🔥 AUTO CREATE MEDICAL RECORD WHEN CONFIRMED
+    // ===============================
+    // AUTO CREATE MEDICAL RECORD
+    // ===============================
     if (status === "confirmed" && !booking.medicalRecord) {
       await MedicalRecord.create(
         {
@@ -420,24 +430,52 @@ router.patch("/:id/status", async (req, res) => {
           subjective: null,
           objective: null,
           assessment: null,
-          plan: null
+          plan: null,
         },
         { transaction }
       );
+    }
+
+    // ===============================
+    // 💰 WALLET LOGIC (THE CORE)
+    // ===============================
+    if (
+      status === "completed" &&
+      booking.payment_status === "paid" &&
+      booking.is_wallet_processed === false
+    ) {
+      const price = booking.Service.price;
+      const isLive = booking.Service.is_live;
+
+      const doctorPercent = isLive ? 0.7 : 0.9;
+      const doctorIncome = price * doctorPercent;
+
+      const [wallet] = await WalletDoctor.findOrCreate({
+        where: { doctor_id: booking.doctor_id },
+        defaults: { balance: 0 },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+
+      wallet.balance = Number(wallet.balance) + doctorIncome;
+      await wallet.save({ transaction });
+
+      booking.is_wallet_processed = true;
+      await booking.save({ transaction });
     }
 
     await transaction.commit();
 
     return res.json({
       message: "Booking status updated successfully",
-      booking
+      booking,
     });
   } catch (err) {
     await transaction.rollback();
     console.error(err);
     res.status(500).json({
       message: "Failed to update booking status",
-      error: err.message
+      error: err.message,
     });
   }
 });

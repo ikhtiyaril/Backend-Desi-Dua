@@ -1,6 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const { Doctor, Booking } = require('../models');
+const { Doctor, Booking,DoctorSchedule , sequelize } = require('../models');
 const sendEmail = require('../utils/sendmail');
 const jwt = require('jsonwebtoken');
 const verifyToken = require("../middleware/verifyToken");
@@ -80,23 +80,27 @@ router.post('/login', async (req, res) => {
 });
 
 // Create doctor
-router.post('/' ,upload.single('avatar'), async (req, res) => {
-  try {
+router.post('/', upload.single('avatar'), async (req, res) => {
+  const transaction = await sequelize.transaction();
 
+  try {
     let { name, email, phone, specialization, bio, avatar, Study } = req.body;
-if(req.file){
-const fileUrl = `${process.env.BACKEND_URL}/uploads/${req.file.filename}`;
-    avatar = fileUrl
-}else {
-      console.log("Tidak ada file yang dikirim atau multer gagal menangkap file");
+
+    if (req.file) {
+      avatar = `${process.env.BACKEND_URL}/uploads/${req.file.filename}`;
     }
 
     const exist = await Doctor.findOne({ where: { email } });
-    if (exist) return res.status(400).json({ message: 'Email sudah terdaftar' });
-    const password = '1234asdf'
+    if (exist) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'Email sudah terdaftar' });
+    }
+
+    const password = '1234asdf';
     const salt = await bcrypt.genSalt(10);
     const hash = await bcrypt.hash(password, salt);
 
+    // 1️⃣ Create Doctor
     const doctor = await Doctor.create({
       name,
       email,
@@ -107,12 +111,33 @@ const fileUrl = `${process.env.BACKEND_URL}/uploads/${req.file.filename}`;
       avatar,
       Study,
       isActive: false
+    }, { transaction });
+
+    // 2️⃣ Default Schedule (Senin–Jumat)
+    const defaultSchedules = [1, 2, 3, 4, 5].map(day => ({
+      doctor_id: doctor.id,
+      day_of_week: day,
+      start_time: '08:00:00',
+      end_time: '16:00:00'
+    }));
+
+    await DoctorSchedule.bulkCreate(defaultSchedules, { transaction });
+
+    await transaction.commit();
+
+    res.status(201).json({
+      success: true,
+      message: 'Doctor created with default schedule',
+      data: doctor
     });
 
-    res.json({ success: true, data: doctor });
   } catch (err) {
+    await transaction.rollback();
     console.error(err);
-    res.status(500).json({ message: 'Gagal membuat dokter', error: err.message });
+    res.status(500).json({
+      message: 'Gagal membuat dokter',
+      error: err.message
+    });
   }
 });
 
