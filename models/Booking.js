@@ -49,7 +49,12 @@ module.exports = (sequelize, DataTypes) => {
     },
 
     
-  
+  is_wallet_processed: {
+  type: DataTypes.BOOLEAN,
+  allowNull: false,
+  defaultValue: false
+},
+
 
   }, {
     tableName: 'bookings',

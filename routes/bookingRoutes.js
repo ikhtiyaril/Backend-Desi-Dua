@@ -390,6 +390,7 @@ router.patch("/:id/status", async (req, res) => {
 
     const allowedStatus = ["pending", "confirmed", "cancelled", "completed"];
     if (!allowedStatus.includes(status)) {
+      await transaction.rollback();
       return res.status(400).json({ message: "Invalid status value" });
     }
 
@@ -400,7 +401,7 @@ router.patch("/:id/status", async (req, res) => {
           as: "medicalRecord",
         },
         {
-          model: Service,
+          model: Service, // tanpa alias → booking.Service
         },
       ],
       transaction,
@@ -427,24 +428,20 @@ router.patch("/:id/status", async (req, res) => {
           booking_id: booking.id,
           patient_id: booking.patient_id,
           doctor_id: booking.doctor_id,
-          subjective: null,
-          objective: null,
-          assessment: null,
-          plan: null,
         },
         { transaction }
       );
     }
 
     // ===============================
-    // 💰 WALLET LOGIC (THE CORE)
+    // 💰 WALLET LOGIC (SAFE VERSION)
     // ===============================
     if (
       status === "completed" &&
       booking.payment_status === "paid" &&
       booking.is_wallet_processed === false
     ) {
-      const price = booking.Service.price;
+      const price = Number(booking.Service.price);
       const isLive = booking.Service.is_live;
 
       const doctorPercent = isLive ? 0.7 : 0.9;
@@ -473,12 +470,13 @@ router.patch("/:id/status", async (req, res) => {
   } catch (err) {
     await transaction.rollback();
     console.error(err);
-    res.status(500).json({
+    return res.status(500).json({
       message: "Failed to update booking status",
       error: err.message,
     });
   }
 });
+
 
 
 module.exports = router;
