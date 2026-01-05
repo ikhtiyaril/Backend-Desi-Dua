@@ -142,7 +142,7 @@ router.get("/doctor/withdraw", verifyToken, async (req, res) => {
 });
 
 router.post("/doctor/withdraw", verifyToken, async (req, res) => {
-  const transaction = await sequelize.transaction();
+  const transaction = await sequelize.transaction(); // ✅ FIXED
 
   try {
     const { amount, bank_name, bank_account, account_name } = req.body;
@@ -154,15 +154,9 @@ router.post("/doctor/withdraw", verifyToken, async (req, res) => {
     }
 
     const withdrawAmount = Number(amount);
-
     if (!withdrawAmount || withdrawAmount <= 0) {
       await transaction.rollback();
       return res.status(400).json({ message: "Invalid withdraw amount" });
-    }
-
-    if (!bank_name || !bank_account || !account_name) {
-      await transaction.rollback();
-      return res.status(400).json({ message: "Bank data incomplete" });
     }
 
     const wallet = await WalletDoctor.findOne({
@@ -171,22 +165,12 @@ router.post("/doctor/withdraw", verifyToken, async (req, res) => {
       lock: transaction.LOCK.UPDATE,
     });
 
-    if (!wallet) {
+    if (!wallet || Number(wallet.balance) < withdrawAmount) {
       await transaction.rollback();
-      return res.status(404).json({ message: "Wallet not found" });
+      return res.status(400).json({ message: "Insufficient balance" });
     }
 
-    if (Number(wallet.balance) < withdrawAmount) {
-      await transaction.rollback();
-      return res.status(400).json({
-        message: "Insufficient wallet balance",
-      });
-    }
-
-    // ===============================
-    // HOLD SALDO
-    // ===============================
-    wallet.balance = Number(wallet.balance) - withdrawAmount;
+    wallet.balance -= withdrawAmount;
     await wallet.save({ transaction });
 
     const withdraw = await WithdrawRequest.create(
@@ -211,8 +195,7 @@ router.post("/doctor/withdraw", verifyToken, async (req, res) => {
     });
   } catch (error) {
     await transaction.rollback();
-    console.error("WITHDRAW ERROR:", error);
-
+    console.error("❌ WITHDRAW ERROR:", error);
     return res.status(500).json({
       message: "Failed to request withdraw",
       error: error.message,
@@ -231,9 +214,9 @@ router.put(
     try {
       const { id } = req.params;
       const { status } = req.body;
-      const role = req.user?.role;
 
-      if (role !== "admin") {
+      if (req.user?.role !== "admin") {
+        await transaction.rollback();
         return res.status(403).json({ message: "Admin only" });
       }
 
@@ -244,7 +227,9 @@ router.put(
 
       if (!withdraw) {
         await transaction.rollback();
-        return res.status(404).json({ message: "Withdraw request not found" });
+        return res.status(404).json({
+          message: "Withdraw request not found",
+        });
       }
 
       if (withdraw.status === "paid") {
@@ -264,6 +249,13 @@ router.put(
           lock: transaction.LOCK.UPDATE,
         });
 
+        if (!wallet) {
+          await transaction.rollback();
+          return res.status(404).json({
+            message: "Doctor wallet not found",
+          });
+        }
+
         wallet.balance =
           Number(wallet.balance) + Number(withdraw.amount);
         await wallet.save({ transaction });
@@ -273,12 +265,15 @@ router.put(
       }
 
       // ===============================
-      // APPROVE / PAID
+      // APPROVE
       // ===============================
       if (status === "approved") {
         withdraw.status = "approved";
       }
 
+      // ===============================
+      // PAID
+      // ===============================
       if (status === "paid") {
         if (!req.file) {
           await transaction.rollback();
@@ -299,16 +294,19 @@ router.put(
         message: "Withdraw processed successfully",
         withdraw,
       });
+
     } catch (error) {
       await transaction.rollback();
-      console.error(error);
-      res.status(500).json({
+      console.error("ADMIN WITHDRAW ERROR:", error);
+
+      return res.status(500).json({
         message: "Failed to process withdraw",
         error: error.message,
       });
     }
   }
 );
+
 
 router.get("/admin/withdraw", verifyToken, async (req, res) => {
   try {
