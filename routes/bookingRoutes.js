@@ -385,44 +385,61 @@ router.patch("/:id/status", async (req, res) => {
   const transaction = await Booking.sequelize.transaction();
 
   try {
+    console.log("====== PATCH /booking/:id/status ======");
+    console.log("PARAM ID:", req.params.id);
+    console.log("BODY:", req.body);
+
     const { id } = req.params;
     const { status } = req.body;
 
     const allowedStatus = ["pending", "confirmed", "cancelled", "completed"];
     if (!allowedStatus.includes(status)) {
+      console.log("❌ INVALID STATUS:", status);
       await transaction.rollback();
       return res.status(400).json({ message: "Invalid status value" });
     }
 
     const booking = await Booking.findByPk(id, {
       include: [
-        {
-          model: MedicalRecord,
-          as: "medicalRecord",
-        },
-        {
-          model: Service, // tanpa alias → booking.Service
-        },
+        { model: MedicalRecord, as: "medicalRecord" },
+        { model: Service },
       ],
       transaction,
       lock: transaction.LOCK.UPDATE,
     });
 
     if (!booking) {
+      console.log("❌ BOOKING NOT FOUND");
       await transaction.rollback();
       return res.status(404).json({ message: "Booking not found" });
     }
+
+    console.log("✅ BOOKING FOUND:", {
+      id: booking.id,
+      status: booking.status,
+      payment_status: booking.payment_status,
+      is_wallet_processed: booking.is_wallet_processed,
+      service: booking.Service
+        ? {
+            id: booking.Service.id,
+            price: booking.Service.price,
+            is_live: booking.Service.is_live,
+          }
+        : null,
+    });
 
     // ===============================
     // UPDATE STATUS
     // ===============================
     booking.status = status;
     await booking.save({ transaction });
+    console.log("✅ STATUS UPDATED TO:", status);
 
     // ===============================
     // AUTO CREATE MEDICAL RECORD
     // ===============================
     if (status === "confirmed" && !booking.medicalRecord) {
+      console.log("📝 CREATING MEDICAL RECORD...");
       await MedicalRecord.create(
         {
           booking_id: booking.id,
@@ -431,21 +448,39 @@ router.patch("/:id/status", async (req, res) => {
         },
         { transaction }
       );
+      console.log("✅ MEDICAL RECORD CREATED");
     }
 
     // ===============================
-    // 💰 WALLET LOGIC (SAFE VERSION)
+    // 💰 WALLET LOGIC DEBUG
     // ===============================
+    if (status === "completed") {
+      console.log("➡️ STATUS COMPLETED");
+      console.log("PAYMENT STATUS:", booking.payment_status);
+      console.log("IS WALLET PROCESSED:", booking.is_wallet_processed);
+    }
+
     if (
       status === "completed" &&
       booking.payment_status === "paid" &&
       booking.is_wallet_processed === false
     ) {
+      if (!booking.Service) {
+        throw new Error("SERVICE IS NULL — wallet cannot be processed");
+      }
+
       const price = Number(booking.Service.price);
       const isLive = booking.Service.is_live;
 
       const doctorPercent = isLive ? 0.7 : 0.9;
       const doctorIncome = price * doctorPercent;
+
+      console.log("💰 WALLET CALCULATION:", {
+        price,
+        isLive,
+        doctorPercent,
+        doctorIncome,
+      });
 
       const [wallet] = await WalletDoctor.findOrCreate({
         where: { doctor_id: booking.doctor_id },
@@ -454,22 +489,33 @@ router.patch("/:id/status", async (req, res) => {
         lock: transaction.LOCK.UPDATE,
       });
 
+      console.log("👛 WALLET BEFORE:", wallet.balance);
+
       wallet.balance = Number(wallet.balance) + doctorIncome;
       await wallet.save({ transaction });
 
+      console.log("👛 WALLET AFTER:", wallet.balance);
+
       booking.is_wallet_processed = true;
       await booking.save({ transaction });
+
+      console.log("✅ WALLET PROCESSED & FLAG UPDATED");
+    } else {
+      console.log("⏭️ WALLET LOGIC SKIPPED");
     }
 
     await transaction.commit();
+    console.log("✅ TRANSACTION COMMITTED");
 
     return res.json({
-      message: "Booking status updated successfully",
+      message: "Booking status updated (debug mode)",
       booking,
     });
   } catch (err) {
     await transaction.rollback();
+    console.error("🔥 ERROR OCCURRED:", err.message);
     console.error(err);
+
     return res.status(500).json({
       message: "Failed to update booking status",
       error: err.message,
