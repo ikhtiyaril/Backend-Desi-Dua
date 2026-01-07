@@ -333,7 +333,7 @@ router.get("/admin/withdraw", verifyToken, async (req, res) => {
       where: whereClause,
       include: [
         {
-          model: User,
+          model: Doctor,
           as: "doctor",
           attributes: ["id", "name", "email"],
         },

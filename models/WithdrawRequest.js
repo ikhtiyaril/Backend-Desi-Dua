@@ -62,7 +62,7 @@ module.exports = (sequelize, DataTypes) => {
   );
 
   WithdrawRequest.associate = (models) => {
-    WithdrawRequest.belongsTo(models.User, {
+    WithdrawRequest.belongsTo(models.Doctor, {
       foreignKey: "doctor_id",
       as: "doctor",
       onDelete: "CASCADE",
