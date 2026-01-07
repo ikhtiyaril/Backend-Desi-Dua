@@ -1,11 +1,26 @@
+// routes/withdraw.js
 const express = require('express');
 const router = express.Router();
-const { Booking, Service, Doctor, User , BlockedTime,MedicalRecord ,WalletDoctor , WithdrawRequest, sequelize} = require('../models'); // pastikan path sesuai
+const {
+  Booking,
+  Service,
+  Doctor,
+  User,
+  BlockedTime,
+  MedicalRecord,
+  WalletDoctor,
+  WithdrawRequest,
+  sequelize,
+} = require('../models'); // pastikan path sesuai
 const { Op } = require('sequelize');
 const verifyToken = require("../middleware/verifyToken");
 const upload = require("../middleware/cbUploads");
 
-
+/**
+ * GET /doctor/wallet
+ * Menampilkan wallet + riwayat transaksi (completed & paid)
+ * Role check: doctor
+ */
 router.get("/doctor/wallet", verifyToken, async (req, res) => {
   try {
     const userId = req.user?.id;
@@ -15,18 +30,12 @@ router.get("/doctor/wallet", verifyToken, async (req, res) => {
       return res.status(403).json({ message: "Doctor only" });
     }
 
-    // ===============================
-    // 1️⃣ WALLET (SALDO REAL)
-    // ===============================
     const wallet = await WalletDoctor.findOne({
       where: { doctor_id: userId },
     });
 
     const balance = Number(wallet?.balance || 0);
 
-    // ===============================
-    // 2️⃣ AMBIL BOOKING SELESAI & PAID
-    // ===============================
     const bookings = await Booking.findAll({
       where: {
         doctor_id: userId,
@@ -45,64 +54,51 @@ router.get("/doctor/wallet", verifyToken, async (req, res) => {
     let totalDoctorIncome = 0;
     let totalAppIncome = 0;
 
-    const detail = bookings.map((booking) => {
-      if (!booking.Service) return null;
+    const detail = bookings
+      .map((booking) => {
+        if (!booking.Service) return null;
 
-      const price = Number(booking.Service.price);
-      const isLive = booking.Service.is_live;
+        const price = Number(booking.Service.price);
+        const isLive = booking.Service.is_live;
 
-      // ===============================
-      // 3️⃣ RULE PEMBAGIAN
-      // ===============================
-      const doctorPercent = isLive ? 0.7 : 0.9;
-      const appPercent = isLive ? 0.3 : 0.1;
+        const doctorPercent = isLive ? 0.7 : 0.9;
+        const appPercent = isLive ? 0.3 : 0.1;
 
-      const doctorIncome = price * doctorPercent;
-      const appIncome = price * appPercent;
+        const doctorIncome = price * doctorPercent;
+        const appIncome = price * appPercent;
 
-      totalDoctorIncome += doctorIncome;
-      totalAppIncome += appIncome;
+        totalDoctorIncome += doctorIncome;
+        totalAppIncome += appIncome;
 
-      return {
-        booking_id: booking.id,
-        booking_code: booking.booking_code,
+        return {
+          booking_id: booking.id,
+          booking_code: booking.booking_code,
+          service_name: booking.Service.name,
+          service_type: isLive ? "LIVE" : "OFFLINE",
+          price,
+          revenue_split: {
+            doctor_percent: `${doctorPercent * 100}%`,
+            app_percent: `${appPercent * 100}%`,
+          },
+          revenue_amount: {
+            doctor_income: doctorIncome,
+            app_income: appIncome,
+          },
+          completed_at: booking.updated_at,
+        };
+      })
+      .filter(Boolean);
 
-        service_name: booking.Service.name,
-        service_type: isLive ? "LIVE" : "OFFLINE",
-
-        price,
-
-        revenue_split: {
-          doctor_percent: `${doctorPercent * 100}%`,
-          app_percent: `${appPercent * 100}%`,
-        },
-
-        revenue_amount: {
-          doctor_income: doctorIncome,
-          app_income: appIncome,
-        },
-
-        completed_at: booking.updated_at,
-      };
-    }).filter(Boolean);
-
-    // ===============================
-    // 4️⃣ RESPONSE
-    // ===============================
     return res.json({
       doctor_id: userId,
-
       wallet_balance: balance,
-
       summary: {
         total_doctor_income: totalDoctorIncome,
         total_app_income: totalAppIncome,
         total_transaction: detail.length,
       },
-
       transactions: detail,
     });
-
   } catch (error) {
     console.error("❌ Wallet Error:", error);
     return res.status(500).json({
@@ -112,9 +108,12 @@ router.get("/doctor/wallet", verifyToken, async (req, res) => {
   }
 });
 
-
+/**
+ * GET /doctor/withdraw
+ * Riwayat withdraw untuk doctor (doctor_id di model WithdrawRequest)
+ */
 router.get("/doctor/withdraw", verifyToken, async (req, res) => {
-    console.log("Kepegang dikit dc wd")
+  console.log("Kepegang dikit dc wd");
   try {
     const userId = req.user?.id;
     const role = req.user?.role;
@@ -133,16 +132,20 @@ router.get("/doctor/withdraw", verifyToken, async (req, res) => {
       data: withdraws,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({
+    console.error("DOCTOR WITHDRAW ERROR:", error);
+    return res.status(500).json({
       message: "Failed to fetch withdraw history",
       error: error.message,
     });
   }
 });
 
+/**
+ * POST /doctor/withdraw
+ * Doctor request withdraw: tarik dari WalletDoctor (transaction & lock)
+ */
 router.post("/doctor/withdraw", verifyToken, async (req, res) => {
-  const transaction = await sequelize.transaction(); // ✅ FIXED
+  const transaction = await sequelize.transaction();
 
   try {
     const { amount, bank_name, bank_account, account_name } = req.body;
@@ -170,7 +173,7 @@ router.post("/doctor/withdraw", verifyToken, async (req, res) => {
       return res.status(400).json({ message: "Insufficient balance" });
     }
 
-    wallet.balance -= withdrawAmount;
+    wallet.balance = Number(wallet.balance) - withdrawAmount;
     await wallet.save({ transaction });
 
     const withdraw = await WithdrawRequest.create(
@@ -203,7 +206,10 @@ router.post("/doctor/withdraw", verifyToken, async (req, res) => {
   }
 });
 
-
+/**
+ * PUT /admin/withdraw/:id
+ * Admin processes withdraw: approved / rejected / paid (with proof image upload)
+ */
 router.put(
   "/admin/withdraw/:id",
   verifyToken,
@@ -239,9 +245,7 @@ router.put(
         });
       }
 
-      // ===============================
-      // REJECT → BALIKIN SALDO
-      // ===============================
+      // REJECT -> kembalikan saldo ke WalletDoctor
       if (status === "rejected") {
         const wallet = await WalletDoctor.findOne({
           where: { doctor_id: withdraw.doctor_id },
@@ -256,24 +260,20 @@ router.put(
           });
         }
 
-        wallet.balance =
-          Number(wallet.balance) + Number(withdraw.amount);
+        wallet.balance = Number(wallet.balance) + Number(withdraw.amount);
         await wallet.save({ transaction });
 
         withdraw.status = "rejected";
         withdraw.processed_at = new Date();
       }
 
-      // ===============================
-      // APPROVE
-      // ===============================
+      // APPROVE (hanya ubah status jadi approved)
       if (status === "approved") {
         withdraw.status = "approved";
+        withdraw.processed_at = new Date();
       }
 
-      // ===============================
-      // PAID
-      // ===============================
+      // PAID (harus upload proof image)
       if (status === "paid") {
         if (!req.file) {
           await transaction.rollback();
@@ -294,11 +294,9 @@ router.put(
         message: "Withdraw processed successfully",
         withdraw,
       });
-
     } catch (error) {
       await transaction.rollback();
       console.error("ADMIN WITHDRAW ERROR:", error);
-
       return res.status(500).json({
         message: "Failed to process withdraw",
         error: error.message,
@@ -307,7 +305,11 @@ router.put(
   }
 );
 
-
+/**
+ * GET /admin/withdraw
+ * Admin melihat semua request withdraw (optional: filter by status)
+ * NOTE: include Doctor model (bukan User)
+ */
 router.get("/admin/withdraw", verifyToken, async (req, res) => {
   try {
     const role = req.user?.role;
@@ -335,7 +337,7 @@ router.get("/admin/withdraw", verifyToken, async (req, res) => {
         {
           model: Doctor,
           as: "doctor",
-          attributes: ["id", "name", "email"],
+          attributes: ["id", "name", "email"], // sesuaikan attribute dengan field doctor di model
         },
       ],
       order: [["requested_at", "DESC"]],
@@ -346,8 +348,8 @@ router.get("/admin/withdraw", verifyToken, async (req, res) => {
       data: withdrawRequests,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({
+    console.error("ADMIN FETCH WITHDRAW ERROR:", error);
+    return res.status(500).json({
       message: "Failed to fetch withdraw requests",
       error: error.message,
     });

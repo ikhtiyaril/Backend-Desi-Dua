@@ -28,7 +28,7 @@ module.exports = (sequelize, DataTypes) => {
   );
 
   WalletDoctor.associate = (models) => {
-    WalletDoctor.belongsTo(models.User, {
+    WalletDoctor.belongsTo(models.Doctor, {
       foreignKey: "doctor_id",
       as: "doctor",
       onDelete: "CASCADE",
