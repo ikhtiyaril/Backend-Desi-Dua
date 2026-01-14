@@ -22,7 +22,7 @@ function genTokenAndHash() {
   return { token, hash };
 }
 
-oute.get("/me", verifyToken, async (req, res) => {
+route.get("/me", verifyToken, async (req, res) => {
   try {
     const user = await User.findByPk(req.user.id, {
       attributes: [
