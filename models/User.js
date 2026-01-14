@@ -57,6 +57,9 @@ verify_token_exp: {
   type: DataTypes.DATE,
   allowNull: true,
 },
+avatar: {
+ type: DataTypes.STRING
+ },
 
     },
     {

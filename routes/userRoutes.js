@@ -5,6 +5,9 @@ const route = express.Router();
 const { User } = require('../models');
 const sendEmail = require('../utils/sendmail')
 const crypto = require('crypto');
+const verifyToken = require("../middleware/verifyToken");
+const upload = require("../middleware/cbUploads");
+
 
 
 const MAX_ATTEMPT = 3;
@@ -505,6 +508,97 @@ route.post('/reset-password', async (req, res) => {
     return res.status(500).json({ message: 'Gagal memperbarui password', error: err.message });
   }
 });
+
+
+
+route.get("/me", verifyToken, async (req, res) => {
+  try {
+    const user = await User.findByPk(req.user.id, {
+      attributes: [
+        "id",
+        "name",
+        "email",
+        "phone",
+        "role",
+        "is_verified",
+        "avatar",
+        "createdAt",
+        "updatedAt"
+      ]
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User tidak ditemukan"
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: user
+    });
+
+  } catch (err) {
+    console.error("[GET /me] Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Gagal mengambil data user"
+    });
+  }
+});
+
+route.put(
+  "/me",
+  verifyToken,
+  upload.single("avatar"), // <-- ini yang nangkep file
+  async (req, res) => {
+    try {
+      const { name, phone } = req.body;
+
+      const user = await User.findByPk(req.user.id);
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User tidak ditemukan"
+        });
+      }
+
+      // Update field biasa
+      if (name !== undefined) user.name = name;
+      if (phone !== undefined) user.phone = phone;
+
+      // Kalau user upload avatar
+      if (req.file) {
+        user.avatar = `/uploads/${req.file.filename}`;
+      }
+
+      await user.save();
+
+      return res.json({
+        success: true,
+        message: "Profil berhasil diperbarui",
+        data: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          avatar: user.avatar,
+          role: user.role,
+          is_verified: user.is_verified
+        }
+      });
+
+    } catch (err) {
+      console.error("[PUT /me] Error:", err);
+      return res.status(500).json({
+        success: false,
+        message: "Gagal memperbarui profil"
+      });
+    }
+  }
+);
 
 
 module.exports = route;

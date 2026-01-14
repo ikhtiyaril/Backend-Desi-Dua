@@ -97,6 +97,52 @@ router.get('/', async (req, res) => {
   }
 });
 
+
+// routes/bookingRoutes.js
+router.get('/upcoming/today', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const now = new Date().toTimeString().slice(0, 8);   // HH:mm:ss
+
+    const booking = await Booking.findOne({
+      where: {
+        patient_id: userId,
+        date: today,
+        status: 'confirmed',
+        payment_status: 'paid',
+        time_start: {
+          [Op.gte]: now
+        }
+      },
+      include: [
+        {
+          model: Service,
+          attributes: ['name', 'is_live']
+        },
+        {
+          model: Doctor,
+          attributes: ['name']
+        }
+      ],
+      order: [['time_start', 'ASC']]
+    });
+
+    res.json({
+      success: true,
+      data: booking
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: 'Gagal ambil booking hari ini'
+    });
+  }
+});
+
 // routes/bookingRoutes.js
 
 router.get("/me", verifyToken, async (req, res) => {
@@ -385,16 +431,11 @@ router.patch("/:id/status", async (req, res) => {
   const transaction = await Booking.sequelize.transaction();
 
   try {
-    console.log("====== PATCH /booking/:id/status ======");
-    console.log("PARAM ID:", req.params.id);
-    console.log("BODY:", req.body);
-
     const { id } = req.params;
     const { status } = req.body;
 
     const allowedStatus = ["pending", "confirmed", "cancelled", "completed"];
     if (!allowedStatus.includes(status)) {
-      console.log("❌ INVALID STATUS:", status);
       await transaction.rollback();
       return res.status(400).json({ message: "Invalid status value" });
     }
@@ -402,123 +443,125 @@ router.patch("/:id/status", async (req, res) => {
     const booking = await Booking.findByPk(id, {
       include: [
         { model: MedicalRecord, as: "medicalRecord" },
-        { model: Service },
+        { model: Service }
       ],
       transaction,
-      lock: transaction.LOCK.UPDATE,
+      lock: transaction.LOCK.UPDATE
     });
 
     if (!booking) {
-      console.log("❌ BOOKING NOT FOUND");
       await transaction.rollback();
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    console.log("✅ BOOKING FOUND:", {
-      id: booking.id,
-      status: booking.status,
-      payment_status: booking.payment_status,
-      is_wallet_processed: booking.is_wallet_processed,
-      service: booking.Service
-        ? {
-            id: booking.Service.id,
-            price: booking.Service.price,
-            is_live: booking.Service.is_live,
-          }
-        : null,
-    });
-
-    // ===============================
-    // UPDATE STATUS
-    // ===============================
     booking.status = status;
     await booking.save({ transaction });
-    console.log("✅ STATUS UPDATED TO:", status);
 
-    // ===============================
-    // AUTO CREATE MEDICAL RECORD
-    // ===============================
+    /* =========================
+       AUTO MEDICAL RECORD
+    ========================= */
     if (status === "confirmed" && !booking.medicalRecord) {
-      console.log("📝 CREATING MEDICAL RECORD...");
       await MedicalRecord.create(
         {
           booking_id: booking.id,
           patient_id: booking.patient_id,
-          doctor_id: booking.doctor_id,
+          doctor_id: booking.doctor_id
         },
         { transaction }
       );
-      console.log("✅ MEDICAL RECORD CREATED");
     }
 
-    // ===============================
-    // 💰 WALLET LOGIC DEBUG
-    // ===============================
-    if (status === "completed") {
-      console.log("➡️ STATUS COMPLETED");
-      console.log("PAYMENT STATUS:", booking.payment_status);
-      console.log("IS WALLET PROCESSED:", booking.is_wallet_processed);
-    }
-
+    /* =========================
+       WALLET
+    ========================= */
     if (
       status === "completed" &&
       booking.payment_status === "paid" &&
       booking.is_wallet_processed === false
     ) {
-      if (!booking.Service) {
-        throw new Error("SERVICE IS NULL — wallet cannot be processed");
-      }
+      if (!booking.Service) throw new Error("Service not found");
 
       const price = Number(booking.Service.price);
-      const isLive = booking.Service.is_live;
-
-      const doctorPercent = isLive ? 0.7 : 0.9;
-      const doctorIncome = price * doctorPercent;
-
-      console.log("💰 WALLET CALCULATION:", {
-        price,
-        isLive,
-        doctorPercent,
-        doctorIncome,
-      });
+      const percent = booking.Service.is_live ? 0.7 : 0.9;
+      const income = price * percent;
 
       const [wallet] = await WalletDoctor.findOrCreate({
         where: { doctor_id: booking.doctor_id },
         defaults: { balance: 0 },
         transaction,
-        lock: transaction.LOCK.UPDATE,
+        lock: transaction.LOCK.UPDATE
       });
 
-      console.log("👛 WALLET BEFORE:", wallet.balance);
-
-      wallet.balance = Number(wallet.balance) + doctorIncome;
+      wallet.balance = Number(wallet.balance) + income;
       await wallet.save({ transaction });
-
-      console.log("👛 WALLET AFTER:", wallet.balance);
 
       booking.is_wallet_processed = true;
       await booking.save({ transaction });
+    }
 
-      console.log("✅ WALLET PROCESSED & FLAG UPDATED");
-    } else {
-      console.log("⏭️ WALLET LOGIC SKIPPED");
+    /* =========================
+       🔔 NOTIFICATIONS
+    ========================= */
+
+    let notifTitle = "";
+    let notifBody = "";
+    let notifType = "";
+
+    if (status === "confirmed") {
+      notifTitle = "Booking confirmed";
+      notifBody = "Dokter telah mengonfirmasi jadwal kamu";
+      notifType = "booking_confirmed";
+    }
+
+    if (status === "cancelled") {
+      notifTitle = "Booking dibatalkan";
+      notifBody = "Jadwal konsultasi telah dibatalkan";
+      notifType = "booking_cancelled";
+    }
+
+    if (status === "completed" && booking.payment_status === "paid") {
+      notifTitle = "Sesi selesai";
+      notifBody = "Terima kasih, pembayaran sudah diterima";
+      notifType = "booking_paid";
+    }
+
+    if (notifType) {
+      const userToken = await PushToken.findOne({
+        where: { user_id: booking.patient_id }
+      });
+
+      const doctorToken = await PushToken.findOne({
+        where: { doctor_id: booking.doctor_id }
+      });
+
+      await Notification.create(
+        {
+          user_id: booking.patient_id,
+          doctor_id: booking.doctor_id,
+          booking_id: booking.id,
+          title: notifTitle,
+          body: notifBody,
+          type: notifType
+        },
+        { transaction }
+      );
+
+      if (userToken) await sendPush(userToken.expo_token, notifTitle, notifBody);
+      if (doctorToken) await sendPush(doctorToken.expo_token, notifTitle, notifBody);
     }
 
     await transaction.commit();
-    console.log("✅ TRANSACTION COMMITTED");
 
     return res.json({
-      message: "Booking status updated (debug mode)",
-      booking,
+      message: "Booking updated + notification sent",
+      booking
     });
+
   } catch (err) {
     await transaction.rollback();
-    console.error("🔥 ERROR OCCURRED:", err.message);
-    console.error(err);
-
     return res.status(500).json({
-      message: "Failed to update booking status",
-      error: err.message,
+      message: "Failed to update booking",
+      error: err.message
     });
   }
 });

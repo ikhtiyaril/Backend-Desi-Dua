@@ -12,12 +12,77 @@ const {
 
 const verifyToken = require('../middleware/verifyToken');
 
-/**
- * ======================================
- * GET ALL MEDICAL RECORDS (DOCTOR LOGIN)
- * ======================================
- * GET /doctor/medical-records
- */
+router.get('/patient', verifyToken, async (req, res) => {
+  try {
+    const patientId = req.user.id;
+
+    const records = await MedicalRecord.findAll({
+      where: {
+        patient_id: patientId
+      },
+      include: [
+        {
+          model: Booking,
+          as: 'booking',
+          attributes: ['id', 'date', 'time_start', 'time_end', 'status']
+        },
+        {
+          model: Doctor,
+          as: 'doctor',
+          attributes: ['id', 'name', 'specialization']
+        }
+      ],
+      order: [['consultation_date', 'DESC']]
+    });
+
+    return res.json(records);
+  } catch (error) {
+    console.error('❌ GET patient medical records error:', error);
+    return res.status(500).json({
+      message: 'Failed to fetch medical records',
+      error: error.message
+    });
+  }
+});
+
+
+router.get('/patient/:id', verifyToken, async (req, res) => {
+  try {
+    const patientId = req.user.id;
+
+    const record = await MedicalRecord.findOne({
+      where: {
+        id: req.params.id,
+        patient_id: patientId
+      },
+      include: [
+        {
+          model: Booking,
+          as: 'booking'
+        },
+        {
+          model: Doctor,
+          as: 'doctor',
+          attributes: ['id', 'name', 'specialization']
+        }
+      ]
+    });
+
+    if (!record) {
+      return res.status(404).json({
+        message: 'Medical record not found or unauthorized'
+      });
+    }
+
+    return res.json(record);
+  } catch (error) {
+    return res.status(500).json({
+      message: 'Failed to fetch medical record',
+      error: error.message
+    });
+  }
+});
+
 router.get('/', verifyToken, async (req, res) => {
   try {
     console.log('=== GET /doctor/medical-records ===');

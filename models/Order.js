@@ -9,29 +9,40 @@ module.exports = (sequelize, DataTypes) => {
         autoIncrement: true,
         allowNull: false,
       },
+
       user_id: {
         type: DataTypes.INTEGER,
         allowNull: false,
       },
+
       total_price: {
         type: DataTypes.DECIMAL(12, 2),
         allowNull: false,
       },
+
+      // 🧾 Status order (logistik)
       status: {
-        type: DataTypes.ENUM("pending", "paid", "cancelled", "delivered"),
+        type: DataTypes.ENUM("pending", "processing", "delivered", "cancelled"),
         allowNull: false,
         defaultValue: "pending",
       },
+
+      // 💳 Status pembayaran (Tripay)
+      payment_status: {
+        type: DataTypes.ENUM("UNPAID", "PAID", "EXPIRED", "FAILED", "REFUND"),
+        allowNull: false,
+        defaultValue: "UNPAID",
+      },
+
       payment_method: {
         type: DataTypes.STRING,
-        allowNull: true, 
-        // contoh: "qris", "bank_transfer", "cod", dll
+        allowNull: true,
       },
-      order_code: {
-  type: DataTypes.STRING,
-  allowNull: false,
-},
 
+      order_code: {
+        type: DataTypes.STRING,
+        allowNull: false,
+      },
     },
     {
       tableName: "orders",
@@ -45,7 +56,6 @@ module.exports = (sequelize, DataTypes) => {
       as: "user",
     });
 
-    // Order punya banyak OrderItems nanti
     Order.hasMany(models.OrderItem, {
       foreignKey: "order_id",
       as: "items",
@@ -54,4 +64,3 @@ module.exports = (sequelize, DataTypes) => {
 
   return Order;
 };
-

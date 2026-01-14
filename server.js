@@ -7,6 +7,9 @@ const passport = require("passport");
 const app = express();
 const session = require('express-session');
 const path = require('path')
+const { Booking, PushToken, Notification } = db;
+const { sendPush } = require("./utils/push");
+const cron = require("node-cron");
 
 app.use(session({
   secret: process.env.SECRET,
@@ -37,10 +40,36 @@ app.use(cors({
 }));
 
 
+
+
 app.get('/', (req, res) => {
     res.send('Application Is Running');
 });
 
+cron.schedule("* * * * *", async ()=>{
+  const now = new Date();
+
+  const bookings = await Booking.findAll({
+    where:{
+      status:"confirmed"
+    },
+    include:["User","Doctor"]
+  });
+
+  for(const b of bookings){
+    const start = new Date(`${b.date} ${b.time_start}`);
+
+    const diff = (start - now) / 60000;
+
+    if(diff <= 5 && diff > 4){
+      // reminder
+    }
+
+    if(diff <= 0 && diff > -1){
+      // booking started
+    }
+  }
+});
 
 
 
@@ -64,6 +93,8 @@ app.use('/api/medical-record',require('./routes/medicalRecordRoutes'))
 app.use('/api/clinic-profile',require('./routes/clinicProfileRoutes'))
 app.use("/api/shipping", require('./routes/shippingRegionalRoutes'));
 app.use("/api/revenue", require('./routes/revenueRoutes'));
+app.use("/api/notification", require('./routes/notificationRoutes'));
+
 
 
 
