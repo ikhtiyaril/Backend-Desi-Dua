@@ -1,9 +1,9 @@
 const jwt = require("jsonwebtoken");
+const { User } = require("../models");
 
-module.exports = function (req, res, next) {
-  
+module.exports = async function (req, res, next) {
   const authHeader = req.headers.authorization;
-console.log('token terambil')
+
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ message: "Token tidak ditemukan" });
   }
@@ -12,9 +12,17 @@ console.log('token terambil')
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded; // ← data dari token masuk sini
+
+    // ✅ cek user di DB
+    const user = await User.findByPk(decoded.id);
+    if (!user) {
+      return res.status(401).json({ message: "User tidak ditemukan" });
+    }
+
+    req.user = user; // sekarang req.user benar-benar live dari DB
     next();
   } catch (err) {
+    console.error("[verifyToken] Error:", err);
     return res.status(401).json({ message: "Token tidak valid" });
   }
 };

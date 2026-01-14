@@ -602,6 +602,6 @@ route.post('/reset-password', async (req, res) => {
 
 
 
-r
+
 
 module.exports = route;
