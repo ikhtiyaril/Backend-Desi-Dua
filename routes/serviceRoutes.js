@@ -11,11 +11,11 @@ const {
 
 const verifyToken = require("../middleware/verifyToken");
 const upload = require("../middleware/cbUploads");
-
+const Base_URL = process.env.BACKEND_URL
 // helper: build image url
 const buildImageUrl = (req, file) => {
   if (!file) return null;
-  return `${req.protocol}://${req.get('host')}/uploads/services/${file.filename}`;
+  return `${BASE_URL}/uploads/${file.filename}`;
 };
 
 //
