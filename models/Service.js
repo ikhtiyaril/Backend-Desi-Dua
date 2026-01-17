@@ -1,4 +1,5 @@
 'use strict';
+
 module.exports = (sequelize, DataTypes) => {
   const Service = sequelize.define('Service', {
     name: {
@@ -26,9 +27,9 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: true
-    },// ==============================
-    // ⬇⬇⬇ Extra for LiveKit Video Call
-    // ==============================
+    },
+
+    // LiveKit
     livekit_room_name: {
       type: DataTypes.STRING,
       allowNull: true
@@ -37,26 +38,41 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.BOOLEAN,
       defaultValue: false
     },
-    is_doctor_service: {
-  type: DataTypes.BOOLEAN,
-  defaultValue: false
-},
-exclusive_doctor_id: {
-  type: DataTypes.INTEGER,
-  allowNull: true
-}
 
+    // Doctor Exclusive
+    is_doctor_service: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false
+    },
+    exclusive_doctor_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true
+    },
+
+    // ⬇⬇⬇ ARTICLE RELATION
+    article_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true
+    },
+ Image_url :{
+ type: DataTypes.STRING
+
+ }
   }, {
     tableName: 'services',
     underscored: true,
-    timestamps:true
+    timestamps: true
   });
 
   Service.associate = function(models) {
-    // contoh relasi many-to-many service <-> doctor
     Service.belongsToMany(models.Doctor, {
       through: models.ServiceDoctor,
       foreignKey: 'service_id'
+    });
+
+    Service.belongsTo(models.Post, {
+      foreignKey: 'article_id',
+      as: 'article'
     });
   };
 

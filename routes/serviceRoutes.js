@@ -1,23 +1,42 @@
 const express = require('express');
 const router = express.Router();
-const { Booking, Service, Doctor, BlockedTime } = require("../models");
-const verifyToken = require("../middleware/verifyToken");
 
+const {
+  Booking,
+  Service,
+  Doctor,
+  BlockedTime,
+  Post
+} = require("../models");
+
+const verifyToken = require("../middleware/verifyToken");
+const upload = require("../middleware/cbUploads");
+
+// helper: build image url
+const buildImageUrl = (req, file) => {
+  if (!file) return null;
+  return `${req.protocol}://${req.get('host')}/uploads/services/${file.filename}`;
+};
+
+//
 // =========================
-// CREATE SERVICE
+// CREATE SERVICE (ADMIN)
 // =========================
-router.post('/', async (req, res) => {
+router.post('/', upload.single('image'), async (req, res) => {
   try {
-    const { 
-      name, 
-      description, 
-      duration_minutes, 
-      price, 
-      require_doctor, 
+    const {
+      name,
+      description,
+      duration_minutes,
+      price,
+      require_doctor,
       allow_walkin,
-      is_live, 
-      doctorIds 
+      is_live,
+      doctorIds,
+      article_id
     } = req.body;
+
+    const image_url = buildImageUrl(req, req.file);
 
     const service = await Service.create({
       name,
@@ -26,44 +45,50 @@ router.post('/', async (req, res) => {
       price,
       require_doctor,
       allow_walkin,
-      is_live
+      is_live,
+      article_id: article_id || null,
+      image_url
     });
 
-    if (doctorIds && Array.isArray(doctorIds)) {
-      await service.setDoctors(doctorIds);
+    if (doctorIds) {
+      const parsed = Array.isArray(doctorIds)
+        ? doctorIds
+        : JSON.parse(doctorIds);
+      await service.setDoctors(parsed);
     }
 
-    const result = await Service.findOne({
-      where: { id: service.id },
-      include: Doctor
+    const result = await Service.findByPk(service.id, {
+      include: [
+        { model: Doctor, through: { attributes: [] } },
+        { model: Post, as: 'article' }
+      ]
     });
 
     res.status(201).json(result);
   } catch (err) {
     console.error("ERROR CREATE SERVICE:", err);
-    res.status(500).json({ 
-      message: 'Gagal membuat service', 
-      error: err.message 
+    res.status(500).json({
+      message: 'Gagal membuat service',
+      error: err.message
     });
   }
 });
 
+//
 // =========================
 // GET ALL SERVICES
 // =========================
 router.get('/', async (req, res) => {
-  const debug = req.query.debug === '1';
-
   try {
     const services = await Service.findAll({
-      include: { model: Doctor, through: { attributes: [] } },
+      include: [
+        { model: Doctor, through: { attributes: [] } },
+        { model: Post, as: 'article' }
+      ],
       order: [['id', 'ASC']]
     });
 
-    const raw = services.map(s => s.toJSON());
-
-    // Format output biar VUE/REACT gampang pakai
-    const formatted = raw.map(s => ({
+    const formatted = services.map(s => ({
       id: s.id,
       name: s.name,
       description: s.description,
@@ -72,35 +97,43 @@ router.get('/', async (req, res) => {
       require_doctor: s.require_doctor,
       allow_walkin: s.allow_walkin,
       is_live: s.is_live,
-      doctorIds: Array.isArray(s.Doctors)
-        ? s.Doctors.map(d => d.id)
-        : []
+      image_url: s.image_url,
+
+      article: s.article ? {
+        id: s.article.id,
+        title: s.article.title,
+        slug: s.article.slug
+      } : null,
+
+      doctorIds: s.Doctors?.map(d => d.id) || []
     }));
 
-    if (debug) return res.json(raw);
-    return res.json(formatted);
-
+    res.json(formatted);
   } catch (err) {
     console.error("ERROR GET SERVICES:", err);
-    res.status(500).json({ 
-      message: 'Gagal mengambil services', 
-      error: err.message 
+    res.status(500).json({
+      message: 'Gagal mengambil services',
+      error: err.message
     });
   }
 });
 
+//
 // =========================
 // GET SERVICE BY ID
 // =========================
 router.get('/:id', async (req, res) => {
   try {
-    const service = await Service.findOne({
-      where: { id: req.params.id },
-      include: Doctor
+    const service = await Service.findByPk(req.params.id, {
+      include: [
+        { model: Doctor, through: { attributes: [] } },
+        { model: Post, as: 'article' }
+      ]
     });
 
-    if (!service)
+    if (!service) {
       return res.status(404).json({ message: "Service tidak ditemukan" });
+    }
 
     res.json(service);
   } catch (err) {
@@ -109,25 +142,32 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+//
 // =========================
-// UPDATE SERVICE
+// UPDATE SERVICE (ADMIN)
 // =========================
-router.put('/:id', async (req, res) => {
+router.put('/:id', upload.single('image'), async (req, res) => {
   try {
     const service = await Service.findByPk(req.params.id);
-    if (!service)
+    if (!service) {
       return res.status(404).json({ message: "Service tidak ditemukan" });
+    }
 
-    const { 
-      name, 
-      description, 
-      duration_minutes, 
-      price, 
-      require_doctor, 
+    const {
+      name,
+      description,
+      duration_minutes,
+      price,
+      require_doctor,
       allow_walkin,
       is_live,
-      doctorIds 
+      doctorIds,
+      article_id
     } = req.body;
+
+    const image_url = req.file
+      ? buildImageUrl(req, req.file)
+      : service.image_url;
 
     await service.update({
       name,
@@ -136,35 +176,47 @@ router.put('/:id', async (req, res) => {
       price,
       require_doctor,
       allow_walkin,
-      is_live
+      is_live,
+      article_id: article_id || null,
+      image_url
     });
 
-    if (doctorIds && Array.isArray(doctorIds)) {
-      await service.setDoctors(doctorIds);
+    if (doctorIds) {
+      const parsed = Array.isArray(doctorIds)
+        ? doctorIds
+        : JSON.parse(doctorIds);
+      await service.setDoctors(parsed);
     }
 
-    const updated = await Service.findOne({
-      where: { id: service.id },
-      include: Doctor
+    const updated = await Service.findByPk(service.id, {
+      include: [
+        { model: Doctor, through: { attributes: [] } },
+        { model: Post, as: 'article' }
+      ]
     });
 
     res.json(updated);
   } catch (err) {
     console.error("ERROR UPDATE SERVICE:", err);
-    res.status(500).json({ message: "Gagal update service", error: err.message });
+    res.status(500).json({
+      message: "Gagal update service",
+      error: err.message
+    });
   }
 });
 
+//
 // =========================
 // DELETE SERVICE
 // =========================
 router.delete('/:id', async (req, res) => {
   try {
     const service = await Service.findByPk(req.params.id);
-    if (!service)
+    if (!service) {
       return res.status(404).json({ message: "Service tidak ditemukan" });
+    }
 
-    await service.setDoctors([]); // hapus relasi pivot
+    await service.setDoctors([]);
     await service.destroy();
 
     res.json({ message: "Service berhasil dihapus" });
@@ -174,6 +226,10 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+//
+// =========================
+// GET SERVICES BY DOCTOR
+// =========================
 router.get('/doctors/:doctorId/services', async (req, res) => {
   const { doctorId } = req.params;
 
@@ -188,19 +244,19 @@ router.get('/doctors/:doctorId/services', async (req, res) => {
   res.json(services);
 });
 
+//
+// =========================
+// EXCLUSIVE DOCTOR SERVICES
+// =========================
 router.get('/doctors/exclusive-services', async (req, res) => {
   try {
-
     const services = await Service.findAll({
-      where: {
-        is_doctor_service: true,
-      },
+      where: { is_doctor_service: true },
       order: [['id', 'ASC']]
     });
 
     res.json(services);
   } catch (err) {
-    console.error('ERROR GET EXCLUSIVE DOCTOR SERVICES:', err);
     res.status(500).json({
       message: 'Gagal mengambil service eksklusif dokter',
       error: err.message
@@ -208,13 +264,15 @@ router.get('/doctors/exclusive-services', async (req, res) => {
   }
 });
 
-
+//
+// =========================
+// UPDATE SERVICE BY DOCTOR
+// =========================
 router.put('/doctor/services/:id', verifyToken, async (req, res) => {
   try {
-    const doctorId = req.user.id; // dari token
+    const doctorId = req.user.id;
     const serviceId = req.params.id;
 
-    // pastikan service ini MILIK dokter
     const service = await Service.findOne({
       where: { id: serviceId },
       include: {
@@ -251,6 +309,5 @@ router.put('/doctor/services/:id', verifyToken, async (req, res) => {
     res.status(500).json({ message: 'Gagal update service' });
   }
 });
-
 
 module.exports = router;
