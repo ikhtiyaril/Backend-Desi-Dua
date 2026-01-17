@@ -1,72 +1,143 @@
 const express = require('express');
 const router = express.Router();
-const { Booking, Service, Doctor, User , BlockedTime,MedicalRecord,WalletDoctor } = require('../models'); // pastikan path sesuai
-const { Op } = require('sequelize');
+const { Booking, Service, Doctor, User , BlockedTime,MedicalRecord,DoctorSchedule,WalletDoctor,sequelize } = require('../models'); // pastikan path sesuai
+const { Transaction, Op } = require('sequelize');
 const verifyToken = require("../middleware/verifyToken");
 
 
+function addMinutes(timeStr, minutesToAdd) {
+  const [h, m] = timeStr.split(":").map(Number);
+  const total = h * 60 + m + minutesToAdd;
+  const newH = Math.floor(total / 60) % 24;
+  const newM = total % 60;
+  return `${String(newH).padStart(2, "0")}:${String(newM).padStart(2, "0")}`;
+}
+
+async function runWithRetry(fn, retries = 3) {
+  try {
+    return await fn();
+  } catch (err) {
+    if (
+      err.original?.code === 'ER_LOCK_DEADLOCK' &&
+      retries > 0
+    ) {
+      console.warn('Deadlock detected, retrying...', retries);
+      return runWithRetry(fn, retries - 1);
+    }
+    throw err;
+  }
+}
+
 router.post('/', verifyToken, async (req, res) => {
   try {
-    const { service_id, doctor_id, date, time_start, notes } = req.body;
-    const { id } = req.user;
+    const booking = await runWithRetry(async () => {
+      return await sequelize.transaction(
+        { isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED },
+        async (t) => {
 
-    const patient_id = id;
+          let { service_id, doctor_id, date, time_start, notes } = req.body;
+          const { id: patient_id } = req.user;
 
-    const serv = await Service.findOne({ where: { id: service_id } });
-    if (!serv) {
-      return res.status(404).json({ message: "Service tidak ditemukan" });
-    }
+          if (!service_id || !date || !time_start) {
+            throw { status: 400, message: "Data tidak lengkap" };
+          }
 
-    function addMinutes(timeStr, minutesToAdd) {
-      const [h, m] = timeStr.split(":").map(Number);
-      const total = h * 60 + m + minutesToAdd;
-      const newH = Math.floor(total / 60) % 24;
-      const newM = total % 60;
-      return `${String(newH).padStart(2, "0")}:${String(newM).padStart(2, "0")}`;
-    }
+          const service = await Service.findByPk(service_id, { transaction: t });
+          if (!service) {
+            throw { status: 404, message: "Service tidak ditemukan" };
+          }
 
-    const time_end = addMinutes(time_start, serv.duration_minutes);
+          if (service.is_doctor_service && service.exclusive_doctor_id) {
+            doctor_id = service.exclusive_doctor_id;
+          }
 
-    if (!patient_id || !service_id || !date || !time_start || !time_end) {
-      return res.status(400).json({ message: 'Data incomplete.' });
-    }
+          if (service.require_doctor && !doctor_id) {
+            throw { status: 400, message: "Service memerlukan dokter" };
+          }
 
-    const booking_code = `BKG-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+          if (doctor_id) {
+            const doctor = await Doctor.findByPk(doctor_id, { transaction: t });
+            if (!doctor) {
+              throw { status: 404, message: "Doctor tidak ditemukan" };
+            }
+          }
 
-    // Create booking
-    const booking = await Booking.create({
-      booking_code,
-      patient_id,
-      service_id,
-      doctor_id: doctor_id || null,
-      date,
-      time_start,
-      time_end,
-      notes: notes || ""
+          const time_end = addMinutes(time_start, service.duration_minutes);
+
+          // 🔒 CRITICAL SECTION (LOCK ROWS)
+          if (doctor_id) {
+            await BlockedTime.findAll({
+              where: { doctor_id, date },
+              transaction: t,
+              lock: t.LOCK.UPDATE, // <<<<<< INI KUNCINYA
+            });
+
+            const overlap = await BlockedTime.findOne({
+              where: {
+                doctor_id,
+                date,
+                [Op.not]: {
+                  [Op.or]: [
+                    { time_end: { [Op.lte]: time_start } },
+                    { time_start: { [Op.gte]: time_end } },
+                  ],
+                },
+              },
+              transaction: t,
+            });
+
+            if (overlap) {
+              throw { status: 409, message: "Waktu sudah terisi" };
+            }
+          }
+
+          const booking = await Booking.create(
+            {
+              booking_code: `BKG-${Date.now()}`,
+              patient_id,
+              service_id,
+              doctor_id: doctor_id || null,
+              date,
+              time_start,
+              time_end,
+              notes: notes || '',
+              status: 'pending',
+            },
+            { transaction: t }
+          );
+
+          if (doctor_id) {
+            await BlockedTime.create(
+              {
+                doctor_id,
+                service_id,
+                date,
+                time_start,
+                time_end,
+                booked_by: booking.id,
+              },
+              { transaction: t }
+            );
+          }
+
+          return booking;
+        }
+      );
     });
 
-    // ----- AUTO GENERATE BLOCKED TIME -----
-    if (doctor_id) {
-     await BlockedTime.create({
-  doctor_id,
-  service_id,
-  date,
-  time_start,
-  time_end,
-  booked_by: booking.id   // ← ini wajib
-});
-    }
-
     return res.status(201).json({
-      message: "Booking created & blocked time added",
-      booking
+      message: "Booking berhasil dibuat",
+      booking,
     });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Gagal membuat booking', error: err.message });
+    console.error("BOOKING CREATE ERROR:", err);
+    return res.status(err.status || 500).json({
+      message: err.message || "Gagal membuat booking",
+    });
   }
 });
+
 
 
 // ========================

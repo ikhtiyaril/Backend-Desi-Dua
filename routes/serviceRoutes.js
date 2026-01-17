@@ -174,6 +174,83 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+router.get('/doctors/:doctorId/services', async (req, res) => {
+  const { doctorId } = req.params;
+
+  const services = await Service.findAll({
+    include: {
+      model: Doctor,
+      where: { id: doctorId },
+      through: { attributes: [] }
+    }
+  });
+
+  res.json(services);
+});
+
+router.get('/doctors/exclusive-services', async (req, res) => {
+  try {
+
+    const services = await Service.findAll({
+      where: {
+        is_doctor_service: true,
+      },
+      order: [['id', 'ASC']]
+    });
+
+    res.json(services);
+  } catch (err) {
+    console.error('ERROR GET EXCLUSIVE DOCTOR SERVICES:', err);
+    res.status(500).json({
+      message: 'Gagal mengambil service eksklusif dokter',
+      error: err.message
+    });
+  }
+});
+
+
+router.put('/doctor/services/:id', verifyToken, async (req, res) => {
+  try {
+    const doctorId = req.user.id; // dari token
+    const serviceId = req.params.id;
+
+    // pastikan service ini MILIK dokter
+    const service = await Service.findOne({
+      where: { id: serviceId },
+      include: {
+        model: Doctor,
+        where: { id: doctorId },
+        through: { attributes: [] }
+      }
+    });
+
+    if (!service) {
+      return res.status(403).json({
+        message: 'Tidak punya akses ke service ini'
+      });
+    }
+
+    const allowedFields = [
+      'description',
+      'price',
+      'duration_minutes',
+      'is_live'
+    ];
+
+    const payload = {};
+    for (const key of allowedFields) {
+      if (req.body[key] !== undefined) {
+        payload[key] = req.body[key];
+      }
+    }
+
+    await service.update(payload);
+
+    res.json({ message: 'Service berhasil diupdate', service });
+  } catch (err) {
+    res.status(500).json({ message: 'Gagal update service' });
+  }
+});
 
 
 module.exports = router;

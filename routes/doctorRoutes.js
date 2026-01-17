@@ -1,6 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const { Doctor, Booking,DoctorSchedule , sequelize } = require('../models');
+const { Doctor, Booking,DoctorSchedule ,Service,BlockedTime, sequelize } = require('../models');
 const sendEmail = require('../utils/sendmail');
 const jwt = require('jsonwebtoken');
 const verifyToken = require("../middleware/verifyToken");
@@ -100,7 +100,9 @@ router.post('/', upload.single('avatar'), async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hash = await bcrypt.hash(password, salt);
 
+    // =========================
     // 1️⃣ Create Doctor
+    // =========================
     const doctor = await Doctor.create({
       name,
       email,
@@ -113,7 +115,9 @@ router.post('/', upload.single('avatar'), async (req, res) => {
       isActive: false
     }, { transaction });
 
-    // 2️⃣ Default Schedule (Senin–Jumat)
+    // =========================
+    // 2️⃣ Default Schedule
+    // =========================
     const defaultSchedules = [1, 2, 3, 4, 5].map(day => ({
       doctor_id: doctor.id,
       day_of_week: day,
@@ -123,12 +127,38 @@ router.post('/', upload.single('avatar'), async (req, res) => {
 
     await DoctorSchedule.bulkCreate(defaultSchedules, { transaction });
 
+    // =========================
+    // 3️⃣ Auto-create Doctor Service
+    // =========================
+    const doctorService = await Service.create({
+      name: `Konsultasi ${doctor.name}`,
+      description: `Konsultasi langsung dengan ${doctor.name}${specialization ? ` (${specialization})` : ''}`,
+      duration_minutes: 30,
+      price: 0, // bisa diupdate dokter nanti
+      require_doctor: true,
+      allow_walkin: false,
+      is_live: false,
+      is_doctor_service: true,
+      exclusive_doctor_id: doctor.id
+    }, { transaction });
+
+    // =========================
+    // 4️⃣ Attach Service ↔ Doctor
+    // =========================
+    await doctorService.addDoctor(doctor.id, { transaction });
+
+    // =========================
+    // 5️⃣ Commit
+    // =========================
     await transaction.commit();
 
     res.status(201).json({
       success: true,
-      message: 'Doctor created with default schedule',
-      data: doctor
+      message: 'Doctor created with default schedule and exclusive service',
+      data: {
+        doctor,
+        service: doctorService
+      }
     });
 
   } catch (err) {
@@ -299,16 +329,97 @@ router.get('/detail/:id', async (req, res) => {
 });
 // Delete doctor
 router.delete('/:id', async (req, res) => {
-  try {
-    const doctor = await Doctor.findByPk(req.params.id);
-    if (!doctor) return res.status(404).json({ message: 'Dokter tidak ditemukan' });
+  const transaction = await sequelize.transaction();
 
-    await doctor.destroy();
-    res.json({ success: true, message: 'Dokter berhasil dihapus' });
+  try {
+    const doctorId = req.params.id;
+
+    const doctor = await Doctor.findByPk(doctorId, { transaction });
+    if (!doctor) {
+      await transaction.rollback();
+      return res.status(404).json({ message: 'Dokter tidak ditemukan' });
+    }
+
+    // =========================
+    // 1️⃣ Hapus Booking dokter
+    // =========================
+    await Booking.destroy({
+      where: { doctor_id: doctorId },
+      transaction
+    });
+
+    // =========================
+    // 2️⃣ Hapus BlockedTime
+    // =========================
+    await BlockedTime.destroy({
+      where: { doctor_id: doctorId },
+      transaction
+    });
+
+    // =========================
+    // 3️⃣ Hapus Schedule
+    // =========================
+    await DoctorSchedule.destroy({
+      where: { doctor_id: doctorId },
+      transaction
+    });
+
+    // =========================
+    // 4️⃣ Ambil service eksklusif dokter
+    // =========================
+    const doctorServices = await Service.findAll({
+      where: {
+        exclusive_doctor_id: doctorId,
+        is_doctor_service: true
+      },
+      transaction
+    });
+
+    const serviceIds = doctorServices.map(s => s.id);
+
+    // =========================
+    // 5️⃣ Hapus pivot ServiceDoctor
+    // =========================
+    if (serviceIds.length > 0) {
+      await ServiceDoctor.destroy({
+        where: {
+          doctor_id: doctorId
+        },
+        transaction
+      });
+
+      // =========================
+      // 6️⃣ Hapus service eksklusif
+      // =========================
+      await Service.destroy({
+        where: { id: serviceIds },
+        transaction
+      });
+    }
+
+    // =========================
+    // 7️⃣ Hapus dokter
+    // =========================
+    await doctor.destroy({ transaction });
+
+    await transaction.commit();
+
+    res.json({
+      success: true,
+      message: 'Dokter dan seluruh data terkait berhasil dihapus'
+    });
+
   } catch (err) {
-    res.status(500).json({ message: 'Gagal hapus dokter', error: err.message });
+    await transaction.rollback();
+    console.error('DELETE DOCTOR ERROR:', err);
+
+    res.status(500).json({
+      message: 'Gagal hapus dokter',
+      error: err.message
+    });
   }
 });
+
 
 // ================= RECOVERY / RESET PASSWORD =================
 

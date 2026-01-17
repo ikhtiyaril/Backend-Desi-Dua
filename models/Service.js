@@ -37,6 +37,15 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.BOOLEAN,
       defaultValue: false
     },
+    is_doctor_service: {
+  type: DataTypes.BOOLEAN,
+  defaultValue: false
+},
+exclusive_doctor_id: {
+  type: DataTypes.INTEGER,
+  allowNull: true
+}
+
   }, {
     tableName: 'services',
     underscored: true,
