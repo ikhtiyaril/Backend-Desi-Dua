@@ -54,9 +54,9 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.INTEGER,
       allowNull: true
     },
- Image_url :{
+   image_url :{
  type: DataTypes.STRING
-
+//buat tes aja
  }
   }, {
     tableName: 'services',

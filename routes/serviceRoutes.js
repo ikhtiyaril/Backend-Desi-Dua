@@ -89,24 +89,28 @@ router.get('/', async (req, res) => {
     });
 
     const formatted = services.map(s => ({
-      id: s.id,
-      name: s.name,
-      description: s.description,
-      duration_minutes: s.duration_minutes,
-      price: s.price,
-      require_doctor: s.require_doctor,
-      allow_walkin: s.allow_walkin,
-      is_live: s.is_live,
-      image_url: s.image_url,
+  id: s.id,
+  name: s.name,
+  description: s.description,
+  duration_minutes: s.duration_minutes,
+  price: s.price,
+  require_doctor: s.require_doctor,
+  allow_walkin: s.allow_walkin,
+  is_live: s.is_live,
+  image_url: s.image_url,
 
-      article: s.article ? {
-        id: s.article.id,
-        title: s.article.title,
-        slug: s.article.slug
-      } : null,
+  // ✅ INI YANG HILANG
+  is_doctor_service: s.is_doctor_service,
+  exclusive_doctor_id: s.exclusive_doctor_id,
 
-      doctorIds: s.Doctors?.map(d => d.id) || []
-    }));
+  article: s.article ? {
+    id: s.article.id,
+    title: s.article.title,
+    slug: s.article.slug
+  } : null,
+
+  doctorIds: s.Doctors?.map(d => d.id) || []
+}));
 
     res.json(formatted);
   } catch (err) {
