@@ -11,7 +11,7 @@ const {
 
 const verifyToken = require("../middleware/verifyToken");
 const upload = require("../middleware/cbUploads");
-const Base_URL = process.env.BACKEND_URL
+const BASE_URL = process.env.BACKEND_URL
 // helper: build image url
 const buildImageUrl = (req, file) => {
   if (!file) return null;
