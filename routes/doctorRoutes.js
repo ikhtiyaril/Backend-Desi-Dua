@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const { Doctor, Booking,DoctorSchedule ,Service,BlockedTime, sequelize } = require('../models');
+const { Op } = require('sequelize'); // <<-- untuk query IN / OR
+const { Doctor, Booking, DoctorSchedule, Service, BlockedTime, ServiceDoctor, sequelize } = require('../models');
 const sendEmail = require('../utils/sendmail');
 const jwt = require('jsonwebtoken');
 const verifyToken = require("../middleware/verifyToken");
@@ -8,6 +9,7 @@ const isAdmin = require("../middleware/isAdmin");
 const upload = require("../middleware/cbUploads");
 
 const router = express.Router();
+
 
 // ================= CRUD DOCTOR =================
 router.post('/login', async (req, res) => {
@@ -355,6 +357,7 @@ router.get('/detail/:id', async (req, res) => {
   }
 });
 // Delete doctor
+// Delete doctor
 router.delete('/:id', async (req, res) => {
   const transaction = await sequelize.transaction();
 
@@ -367,33 +370,7 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Dokter tidak ditemukan' });
     }
 
-    // =========================
-    // 1️⃣ Hapus Booking dokter
-    // =========================
-    await Booking.destroy({
-      where: { doctor_id: doctorId },
-      transaction
-    });
-
-    // =========================
-    // 2️⃣ Hapus BlockedTime
-    // =========================
-    await BlockedTime.destroy({
-      where: { doctor_id: doctorId },
-      transaction
-    });
-
-    // =========================
-    // 3️⃣ Hapus Schedule
-    // =========================
-    await DoctorSchedule.destroy({
-      where: { doctor_id: doctorId },
-      transaction
-    });
-
-    // =========================
-    // 4️⃣ Ambil service eksklusif dokter
-    // =========================
+    // Ambil semua service eksklusif dokter (ONLINE + OFFLINE)
     const doctorServices = await Service.findAll({
       where: {
         exclusive_doctor_id: doctorId,
@@ -404,29 +381,64 @@ router.delete('/:id', async (req, res) => {
 
     const serviceIds = doctorServices.map(s => s.id);
 
-    // =========================
-    // 5️⃣ Hapus pivot ServiceDoctor
-    // =========================
-    if (serviceIds.length > 0) {
-      await ServiceDoctor.destroy({
-        where: {
-          doctor_id: doctorId
-        },
-        transaction
-      });
+    // -------------------------
+    // HAPUS semua dependent rows dengan urutan aman:
+    // 1) Bookings yang merujuk ke doctor ATAU merujuk ke service milik dokter
+    // 2) BlockedTime
+    // 3) DoctorSchedule
+    // 4) Pivot (ServiceDoctor) / association
+    // 5) Service
+    // 6) Doctor
+    // -------------------------
 
-      // =========================
-      // 6️⃣ Hapus service eksklusif
-      // =========================
+    // 1️⃣ Hapus Booking yang berkaitan (by doctor_id OR by service_id)
+    const bookingWhere = {
+      [Op.or]: [
+        { doctor_id: doctorId },
+        // tambahkan clause service_id hanya jika ada serviceIds
+        ...(serviceIds.length ? [{ service_id: serviceIds }] : [])
+      ]
+    };
+
+    await Booking.destroy({
+      where: bookingWhere,
+      transaction
+    });
+
+    // 2️⃣ Hapus BlockedTime
+    await BlockedTime.destroy({
+      where: { doctor_id: doctorId },
+      transaction
+    });
+
+    // 3️⃣ Hapus Schedule
+    await DoctorSchedule.destroy({
+      where: { doctor_id: doctorId },
+      transaction
+    });
+
+    // 4️⃣ Hapus pivot ServiceDoctor (jika ada relasi many-to-many)
+    if (serviceIds.length > 0) {
+      // Prefer using instance method if available
+      if (typeof doctor.removeServices === 'function') {
+        // removeServices accepts instances or ids
+        await doctor.removeServices(serviceIds, { transaction });
+      } else {
+        // fallback: gunakan model pivot (pastikan ServiceDoctor di-export)
+        await ServiceDoctor.destroy({
+          where: { service_id: serviceIds },
+          transaction
+        });
+      }
+
+      // 5️⃣ Hapus services eksklusif dokter
       await Service.destroy({
         where: { id: serviceIds },
         transaction
       });
     }
 
-    // =========================
-    // 7️⃣ Hapus dokter
-    // =========================
+    // 6️⃣ Hapus dokter
     await doctor.destroy({ transaction });
 
     await transaction.commit();
@@ -446,6 +458,7 @@ router.delete('/:id', async (req, res) => {
     });
   }
 });
+
 
 
 // ================= RECOVERY / RESET PASSWORD =================
