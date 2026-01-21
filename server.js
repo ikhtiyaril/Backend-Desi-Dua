@@ -10,7 +10,7 @@ const path = require('path')
 const { Booking, PushToken, Notification } = db;
 const { sendPush } = require("./utils/push");
 const cron = require("node-cron");
-require("./cron/bookingCron");
+require("./cron/bookingReminders");
 
 app.use(session({
   secret: process.env.SECRET,

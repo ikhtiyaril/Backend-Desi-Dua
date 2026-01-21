@@ -90,8 +90,8 @@ router.post('/', verifyToken, async (req, res) => {
               throw { status: 409, message: "Waktu sudah terisi" };
             }
           }
-
-          const statusPayment = Number(service.price) === 0 ? 'paid' : 'unpaid';
+          console.log(service.price)
+          const statusPayment = Number(service.price) == 0 ? 'paid' : 'unpaid';
 
 
 
