@@ -275,12 +275,12 @@ router.post("/checkout", verifyToken, async (req, res) => {
     // SAVE PAYMENT SESSION
     // ===============================
     await PaymentSession.create({
-      related_type: "order",
-      related_id: id,
-      merchant_ref: merchantRef,
-      status: paymentData.status, // UNPAID
-      session_data: paymentData
-    });
+  related_type: "order",
+  related_id: id,
+  merchant_ref: merchantRef,
+  status: tripayRaw.data.status,
+  session_data: tripayRaw
+});
 
     // ===============================
     // UPDATE ORDER
