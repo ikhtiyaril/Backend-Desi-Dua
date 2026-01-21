@@ -55,7 +55,17 @@ module.exports = (sequelize, DataTypes) => {
   defaultValue: false
 },
 
+reminder_1h_sent: {
+  type: DataTypes.BOOLEAN,
+  allowNull: false,
+  defaultValue: false,
+},
 
+started_notif_sent: {
+  type: DataTypes.BOOLEAN,
+  allowNull: false,
+  defaultValue: false,
+},
   }, {
     tableName: 'bookings',
     underscored: true

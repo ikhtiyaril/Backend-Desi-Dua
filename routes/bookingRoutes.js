@@ -91,6 +91,10 @@ router.post('/', verifyToken, async (req, res) => {
             }
           }
 
+          const statusPayment = Number(service.price) === 0 ? 'paid' : 'unpaid';
+
+
+
           const booking = await Booking.create(
             {
               booking_code: `BKG-${Date.now()}`,
@@ -102,6 +106,7 @@ router.post('/', verifyToken, async (req, res) => {
               time_end,
               notes: notes || '',
               status: 'pending',
+              payment_status : statusPayment
             },
             { transaction: t }
           );
