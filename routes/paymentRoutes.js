@@ -278,8 +278,8 @@ router.post("/checkout", verifyToken, async (req, res) => {
   related_type: "order",
   related_id: id,
   merchant_ref: merchantRef,
-  status: tripayRaw.data.status,
-  session_data: tripayRaw
+  status: paymentData.data.status,
+  session_data: paymentData
 });
 
     // ===============================
