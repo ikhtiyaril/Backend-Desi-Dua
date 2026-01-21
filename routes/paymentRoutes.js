@@ -312,7 +312,6 @@ router.post("/checkout", verifyToken, async (req, res) => {
 router.get("/session", verifyToken, async (req, res) => {
   try {
     const { id, type } = req.query;
-    const userId = req.user.id;
 
     if (!id) {
       return res.status(400).json({ message: "order id is required" });
@@ -327,7 +326,6 @@ router.get("/session", verifyToken, async (req, res) => {
         related_type,
         related_id: id,
         status: "UNPAID",
-        user_id: userId, // 🔒 ownership check
       },
     });
 
