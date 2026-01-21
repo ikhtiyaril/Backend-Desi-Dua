@@ -29,6 +29,9 @@ async function runWithRetry(fn, retries = 3) {
 }
 
 router.post('/', verifyToken, async (req, res) => {
+  const DEBUG_ID = `BOOK-${Date.now()}`;
+  console.log(`\n🚀 [${DEBUG_ID}] CREATE BOOKING START`);
+
   try {
     const booking = await runWithRetry(async () => {
       return await sequelize.transaction(
@@ -38,38 +41,83 @@ router.post('/', verifyToken, async (req, res) => {
           let { service_id, doctor_id, date, time_start, notes } = req.body;
           const { id: patient_id } = req.user;
 
+          console.log(`[${DEBUG_ID}] Payload:`, {
+            service_id,
+            doctor_id,
+            date,
+            time_start,
+            patient_id,
+          });
+
+          // =========================
+          // VALIDATION
+          // =========================
           if (!service_id || !date || !time_start) {
+            console.warn(`[${DEBUG_ID}] ❌ Missing required fields`);
             throw { status: 400, message: "Data tidak lengkap" };
           }
 
+          // =========================
+          // SERVICE
+          // =========================
           const service = await Service.findByPk(service_id, { transaction: t });
           if (!service) {
+            console.warn(`[${DEBUG_ID}] ❌ Service not found: ${service_id}`);
             throw { status: 404, message: "Service tidak ditemukan" };
           }
 
+          console.log(`[${DEBUG_ID}] Service found`, {
+            id: service.id,
+            price: service.price,
+            is_doctor_service: service.is_doctor_service,
+            require_doctor: service.require_doctor,
+            exclusive_doctor_id: service.exclusive_doctor_id,
+          });
+
+          // =========================
+          // DOCTOR RESOLUTION
+          // =========================
           if (service.is_doctor_service && service.exclusive_doctor_id) {
             doctor_id = service.exclusive_doctor_id;
+            console.log(
+              `[${DEBUG_ID}] 🔒 Exclusive doctor enforced: ${doctor_id}`
+            );
           }
 
           if (service.require_doctor && !doctor_id) {
+            console.warn(`[${DEBUG_ID}] ❌ Doctor required but not provided`);
             throw { status: 400, message: "Service memerlukan dokter" };
           }
 
           if (doctor_id) {
             const doctor = await Doctor.findByPk(doctor_id, { transaction: t });
             if (!doctor) {
+              console.warn(`[${DEBUG_ID}] ❌ Doctor not found: ${doctor_id}`);
               throw { status: 404, message: "Doctor tidak ditemukan" };
             }
+            console.log(`[${DEBUG_ID}] Doctor OK: ${doctor_id}`);
           }
 
+          // =========================
+          // TIME CALCULATION
+          // =========================
           const time_end = addMinutes(time_start, service.duration_minutes);
+          console.log(`[${DEBUG_ID}] Time calculated`, {
+            start: time_start,
+            end: time_end,
+            duration: service.duration_minutes,
+          });
 
-          // 🔒 CRITICAL SECTION (LOCK ROWS)
+          // =========================
+          // 🔒 CRITICAL SECTION (LOCK)
+          // =========================
           if (doctor_id) {
+            console.log(`[${DEBUG_ID}] 🔐 Locking blocked_times`);
+
             await BlockedTime.findAll({
               where: { doctor_id, date },
               transaction: t,
-              lock: t.LOCK.UPDATE, // <<<<<< INI KUNCINYA
+              lock: t.LOCK.UPDATE,
             });
 
             const overlap = await BlockedTime.findOne({
@@ -87,14 +135,29 @@ router.post('/', verifyToken, async (req, res) => {
             });
 
             if (overlap) {
+              console.warn(`[${DEBUG_ID}] ❌ Time overlap detected`, {
+                existing: {
+                  start: overlap.time_start,
+                  end: overlap.time_end,
+                },
+              });
               throw { status: 409, message: "Waktu sudah terisi" };
             }
+
+            console.log(`[${DEBUG_ID}] ✅ No overlap detected`);
           }
-          console.log(service.price)
-          const statusPayment = Number(service.price) == 0 ? 'paid' : 'unpaid';
 
+          // =========================
+          // PAYMENT STATUS
+          // =========================
+          const payment_status =
+            Number(service.price) === 0 ? "paid" : "unpaid";
 
+          console.log(`[${DEBUG_ID}] Payment status resolved: ${payment_status}`);
 
+          // =========================
+          // BOOKING CREATE
+          // =========================
           const booking = await Booking.create(
             {
               booking_code: `BKG-${Date.now()}`,
@@ -104,13 +167,21 @@ router.post('/', verifyToken, async (req, res) => {
               date,
               time_start,
               time_end,
-              notes: notes || '',
-              status: 'pending',
-              payment_status : statusPayment
+              notes: notes || "",
+              status: "pending",
+              payment_status,
             },
             { transaction: t }
           );
 
+          console.log(`[${DEBUG_ID}] ✅ Booking created`, {
+            id: booking.id,
+            code: booking.booking_code,
+          });
+
+          // =========================
+          // BLOCKED TIME INSERT
+          // =========================
           if (doctor_id) {
             await BlockedTime.create(
               {
@@ -123,6 +194,8 @@ router.post('/', verifyToken, async (req, res) => {
               },
               { transaction: t }
             );
+
+            console.log(`[${DEBUG_ID}] ⛔ BlockedTime created`);
           }
 
           return booking;
@@ -130,13 +203,16 @@ router.post('/', verifyToken, async (req, res) => {
       );
     });
 
+    console.log(`[${DEBUG_ID}] 🎉 TRANSACTION COMMIT SUCCESS`);
+
     return res.status(201).json({
       message: "Booking berhasil dibuat",
       booking,
     });
 
   } catch (err) {
-    console.error("BOOKING CREATE ERROR:", err);
+    console.error(`[${DEBUG_ID}] 💥 BOOKING ERROR`, err);
+
     return res.status(err.status || 500).json({
       message: err.message || "Gagal membuat booking",
     });

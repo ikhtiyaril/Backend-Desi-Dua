@@ -311,29 +311,42 @@ router.post("/checkout", verifyToken, async (req, res) => {
 
 router.get("/session", verifyToken, async (req, res) => {
   try {
-    const { id } = req.query;
+    const { id, type } = req.query;
+    const userId = req.user.id;
 
     if (!id) {
       return res.status(400).json({ message: "order id is required" });
     }
 
+    // 🔐 whitelist type
+    const ALLOWED_TYPES = ["booking", "order"];
+    const related_type = ALLOWED_TYPES.includes(type) ? type : "order";
+
     const session = await PaymentSession.findOne({
       where: {
-        related_type: "order",
+        related_type,
         related_id: id,
-        status: "UNPAID"
-      }
+        status: "UNPAID",
+        user_id: userId, // 🔒 ownership check
+      },
     });
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: "Payment session tidak ditemukan",
+      });
+    }
 
     return res.json({
       success: true,
-      session
+      session,
     });
-
   } catch (err) {
-    console.error(err);
+    console.error("GET PAYMENT SESSION ERROR:", err);
     return res.status(500).json({ message: "Failed to get payment session" });
   }
 });
+
 
 module.exports = router;
