@@ -276,7 +276,7 @@ await PaymentSession.create({
   related_id: id,
   merchant_ref: merchantRef,
   status: paymentData.status,      // ✅ BENAR
-  session_data: paymentData        // ✅ BENAR
+  session_data: tripayRes.data        // ✅ BENAR
 });
 
     // ===============================
