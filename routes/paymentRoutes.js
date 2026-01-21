@@ -269,17 +269,14 @@ router.post("/checkout", verifyToken, async (req, res) => {
       }
     );
 
-    const paymentData = tripayRes.data.data;
+   const paymentData = tripayRes.data.data;
 
-    // ===============================
-    // SAVE PAYMENT SESSION
-    // ===============================
-    await PaymentSession.create({
+await PaymentSession.create({
   related_type: "order",
   related_id: id,
   merchant_ref: merchantRef,
-  status: paymentData.data.status,
-  session_data: paymentData
+  status: paymentData.status,      // ✅ BENAR
+  session_data: paymentData        // ✅ BENAR
 });
 
     // ===============================
