@@ -18,6 +18,13 @@ const buildImageUrl = (req, file) => {
   return `${BASE_URL}/uploads/${file.filename}`;
 };
 
+const requireDoctor = (req, res, next) => {
+  if (req.user.role !== "doctor") {
+    return res.status(403).json({ message: "Doctor only access" });
+  }
+  next();
+};
+
 //
 // =========================
 // CREATE SERVICE (ADMIN)
@@ -268,7 +275,106 @@ router.get('/doctors/exclusive-services', async (req, res) => {
   }
 });
 
-//
+
+
+router.get(
+  "/doctor/services/exclusive",
+  verifyToken,
+  requireDoctor,
+  async (req, res) => {
+    try {
+      const doctorId = req.user.id;
+
+      const services = await Service.findAll({
+        where: {
+          is_doctor_service: true,
+          exclusive_doctor_id: doctorId,
+        },
+        order: [["id", "ASC"]],
+      });
+
+      res.json({
+        success: true,
+        data: services,
+      });
+    } catch (err) {
+      res.status(500).json({
+        message: "Gagal mengambil service eksklusif dokter",
+        error: err.message,
+      });
+    }
+  }
+);
+
+
+
+router.put(
+  "/doctor/services/:id",
+  verifyToken,
+  requireDoctor,
+  async (req, res) => {
+    try {
+      const doctorId = req.user.id;
+      const serviceId = req.params.id;
+
+      const {
+        name,
+        description,
+        duration_minutes,
+        price,
+        allow_walkin,
+        is_live,
+        image_url,
+      } = req.body;
+
+      // 1️⃣ Cari service
+      const service = await Service.findByPk(serviceId);
+
+      if (!service) {
+        return res.status(404).json({
+          message: "Service tidak ditemukan",
+        });
+      }
+
+      // 2️⃣ Pastikan ini service eksklusif
+      if (!service.is_doctor_service) {
+        return res.status(403).json({
+          message: "Service ini bukan service eksklusif dokter",
+        });
+      }
+
+      // 3️⃣ Pastikan service milik dokter ini
+      if (service.exclusive_doctor_id !== doctorId) {
+        return res.status(403).json({
+          message: "Anda tidak berhak mengedit service ini",
+        });
+      }
+
+      // 4️⃣ Update field yang diizinkan
+      await service.update({
+        name,
+        description,
+        duration_minutes,
+        price,
+        allow_walkin,
+        is_live,
+        image_url,
+      });
+
+      res.json({
+        success: true,
+        message: "Service eksklusif berhasil diperbarui",
+        data: service,
+      });
+    } catch (err) {
+      res.status(500).json({
+        message: "Gagal mengupdate service",
+        error: err.message,
+      });
+    }
+  }
+);
+
 // =========================
 // UPDATE SERVICE BY DOCTOR
 // =========================
