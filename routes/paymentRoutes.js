@@ -307,6 +307,7 @@ await PaymentSession.create({
 });
 
 router.get("/session", verifyToken, async (req, res) => {
+   console.log("SESSION ENDPOINT HIT");
   try {
     const { id, type } = req.query;
 
