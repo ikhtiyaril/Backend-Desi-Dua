@@ -126,12 +126,6 @@ route.post('/login', async (req, res) => {
     if (!user) {
       return res.status(400).json({ message: 'Email tidak ditemukan' });
     }
-    
-if (!user.is_verified) {
-  return res.status(403).json({
-    message: 'Akun belum diverifikasi. Silakan cek email.'
-  });
-}
 
     // 🔒 CEK AKUN TERKUNCI
     if (user.lock_until && new Date(user.lock_until) > new Date()) {
@@ -280,93 +274,100 @@ route.post('/login/admin', async (req, res) => {
 route.post('/register', async (req, res) => {
   try {
     const { email, password, phone, name } = req.body;
+    console.log('[DEBUG] Request Body:', req.body);
 
-    if (!email || !password || !phone || !name)
-      return res.status(400).json({ message: 'Semua field wajib diisi' });
+    if (!email || !password || !phone || !name) {
+      console.log('[DEBUG] Missing field:', { email, password, phone, name });
+      return res.status(400).json({ message: 'Email, password, nomor telepon, dan nama wajib diisi' });
+    }
 
-    // cek existing
-    if (await User.findOne({ where: { email } }))
-      return res.status(400).json({ message: 'Email sudah digunakan' });
+    const existingEmail = await User.findOne({ where: { email } });
+    console.log('[DEBUG] existingEmail:', existingEmail ? true : false);
+    if (existingEmail) return res.status(400).json({ message: 'Email sudah digunakan' });
 
-    if (await User.findOne({ where: { phone } }))
-      return res.status(400).json({ message: 'Nomor telepon sudah digunakan' });
+    const existingPhone = await User.findOne({ where: { phone } });
+    console.log('[DEBUG] existingPhone:', existingPhone ? true : false);
+    if (existingPhone) return res.status(400).json({ message: 'Nomor telepon sudah digunakan' });
 
-    const passwordHash = await bcrypt.hash(password, 10);
+    const salt = await bcrypt.genSalt(10);
+    const hashPassword = await bcrypt.hash(password, salt);
+    console.log('[DEBUG] Hashed password:', hashPassword);
 
-    // token
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-    const exp = new Date(Date.now() + VERIF_EXP_MS);
+    // buat token verifikasi
+    const { token, hash } = genTokenAndHash();
+    console.log('[DEBUG] Token & hash:', { token, hash });
+    const verifyExp = new Date(Date.now() + VERIF_EXP_MS);
+    console.log('[DEBUG] verifyExp:', verifyExp);
 
-    // create user
-    await User.create({
+    // create user (is_verified false by default)
+    const user = await User.create({
       email,
+      password: hashPassword,
       name,
       phone,
-      password: passwordHash,
       role: 'patient',
       is_verified: false,
-      verify_token: tokenHash,
-      verify_token_exp: exp
+      verify_token: hash,
+      verify_token_exp: verifyExp
     });
+    console.log('[DEBUG] User created:', user.id);
 
-    const verifyLink = `${process.env.DOMAIN_FE_CLIENT}/verify-account?email=${encodeURIComponent(email)}&token=${rawToken}`;
+    // kirim email verifikasi (link berisi token mentah)
+    const verifyLink = `${process.env.DOMAIN_FE_CLIENT || 'https://your-frontend.com'}verify-account?token=${token}&email=${encodeURIComponent(email)}`;
+    console.log('[DEBUG] Verify link:', verifyLink);
 
-    await sendEmail({
-      to: email,
-      subject: 'Verifikasi Email - KlinikCare',
-      html: `
-        <p>Halo ${name},</p>
-        <p>Klik link berikut untuk mengaktifkan akun:</p>
-        <p><a href="${verifyLink}">${verifyLink}</a></p>
-        <p>Link berlaku 24 jam.</p>
-      `
-    });
+    try {
+      await sendEmail({
+        to: email,
+        subject: 'Verifikasi Email - Klinik',
+        html: `
+          <p>Halo ${name},</p>
+          <p>Silakan klik link berikut untuk verifikasi email kamu (berlaku 24 jam):</p>
+          <p><a href="${verifyLink}">${verifyLink}</a></p>
+          <p>Jika kamu tidak membuat akun, abaikan email ini.</p>
+        `
+      });
+      console.log('[DEBUG] Email sent to:', email);
+    } catch (emailErr) {
+      console.error('[DEBUG] Email failed:', emailErr);
+    }
 
-    res.json({ success: true, message: 'Registrasi berhasil, cek email untuk verifikasi' });
+    return res.json({ success: true, message: 'Akun dibuat. Cek email untuk verifikasi.' });
 
   } catch (err) {
-    console.error('[REGISTER]', err);
-    res.status(500).json({ message: 'Register gagal' });
+    console.error('[REGISTER] Error:', err);
+    return res.status(500).json({ message: 'Register gagal', error: err.message });
   }
 });
-
 
 // bisa GET atau POST. POST lebih aman (token di body).
 route.post('/verify-email', async (req, res) => {
   try {
     const { email, token } = req.body;
-
-    if (!email || !token)
-      return res.status(400).json({ message: 'Email dan token diperlukan' });
+    if (!email || !token) return res.status(400).json({ message: 'Email dan token diperlukan' });
 
     const user = await User.findOne({ where: { email } });
-    if (!user) return res.status(404).json({ message: 'User tidak ditemukan' });
+    if (!user) return res.status(400).json({ message: 'User tidak ditemukan' });
 
-    if (user.is_verified)
-      return res.json({ success: true, message: 'Akun sudah terverifikasi' });
+    if (user.is_verified) return res.json({ success: true, message: 'Akun sudah terverifikasi' });
 
-    if (!user.verify_token || !user.verify_token_exp)
-      return res.status(400).json({ message: 'Token tidak valid' });
+    // compare hashed token
+    const hash = crypto.createHash('sha256').update(token).digest('hex');
+    if (!user.verify_token || user.verify_token !== hash) {
+      return res.status(400).json({ message: 'Token verifikasi tidak valid' });
+    }
 
-    if (new Date() > new Date(user.verify_token_exp))
-      return res.status(400).json({ message: 'Token sudah kedaluwarsa' });
+    if (user.verify_token_exp && new Date() > new Date(user.verify_token_exp)) {
+      return res.status(400).json({ message: 'Token verifikasi sudah kedaluwarsa' });
+    }
 
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-    if (tokenHash !== user.verify_token)
-      return res.status(400).json({ message: 'Token verifikasi salah' });
+    // tandai verified dan bersihkan token
+    await user.update({ is_verified: true, verify_token: null, verify_token_exp: null });
 
-    await user.update({
-      is_verified: true,
-      verify_token: null,
-      verify_token_exp: null
-    });
-
-    res.json({ success: true, message: 'Email berhasil diverifikasi' });
-
+    return res.json({ success: true, message: 'Email berhasil diverifikasi' });
   } catch (err) {
-    console.error('[VERIFY EMAIL]', err);
-    res.status(500).json({ message: 'Verifikasi gagal' });
+    console.error('[VERIFY EMAIL] Error:', err);
+    return res.status(500).json({ message: 'Gagal verifikasi email', error: err.message });
   }
 });
 
