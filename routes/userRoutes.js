@@ -277,29 +277,52 @@ route.post('/register', async (req, res) => {
     console.log('[DEBUG] Request Body:', req.body);
 
     if (!email || !password || !phone || !name) {
-      console.log('[DEBUG] Missing field:', { email, password, phone, name });
-      return res.status(400).json({ message: 'Email, password, nomor telepon, dan nama wajib diisi' });
+      return res.status(400).json({
+        message: 'Email, password, nomor telepon, dan nama wajib diisi'
+      });
     }
 
     const existingEmail = await User.findOne({ where: { email } });
-    console.log('[DEBUG] existingEmail:', existingEmail ? true : false);
-    if (existingEmail) return res.status(400).json({ message: 'Email sudah digunakan' });
+    if (existingEmail) {
+      return res.status(400).json({ message: 'Email sudah digunakan' });
+    }
 
     const existingPhone = await User.findOne({ where: { phone } });
-    console.log('[DEBUG] existingPhone:', existingPhone ? true : false);
-    if (existingPhone) return res.status(400).json({ message: 'Nomor telepon sudah digunakan' });
+    if (existingPhone) {
+      return res.status(400).json({ message: 'Nomor telepon sudah digunakan' });
+    }
 
     const salt = await bcrypt.genSalt(10);
     const hashPassword = await bcrypt.hash(password, salt);
-    console.log('[DEBUG] Hashed password:', hashPassword);
 
-    // buat token verifikasi
+    // token verifikasi
     const { token, hash } = genTokenAndHash();
-    console.log('[DEBUG] Token & hash:', { token, hash });
     const verifyExp = new Date(Date.now() + VERIF_EXP_MS);
-    console.log('[DEBUG] verifyExp:', verifyExp);
 
-    // create user (is_verified false by default)
+    const verifyLink =
+      `${process.env.DOMAIN_FE_CLIENT || 'https://your-frontend.com'}` +
+      `/verify-account?token=${token}&email=${encodeURIComponent(email)}`;
+
+    // 👉 STEP KRITIS: KIRIM EMAIL DULU
+    try {
+      await sendEmail({
+        to: email,
+        subject: 'Verifikasi Email - Klinik Desidua',
+        html: `
+          <p>Halo ${name},</p>
+          <p>Silakan klik link berikut untuk verifikasi email kamu (berlaku 24 jam):</p>
+          <p><a href="${verifyLink}">${verifyLink}</a></p>
+          <p>Jika kamu tidak membuat akun, abaikan email ini.</p>
+        `
+      });
+    } catch (emailErr) {
+      console.error('[EMAIL ERROR]', emailErr);
+      return res.status(500).json({
+        message: 'Gagal mengirim email verifikasi. Silakan coba lagi.'
+      });
+    }
+
+    // 👉 BARU CREATE USER SETELAH EMAIL SUKSES
     const user = await User.create({
       email,
       password: hashPassword,
@@ -310,35 +333,21 @@ route.post('/register', async (req, res) => {
       verify_token: hash,
       verify_token_exp: verifyExp
     });
-    console.log('[DEBUG] User created:', user.id);
 
-    // kirim email verifikasi (link berisi token mentah)
-    const verifyLink = `${process.env.DOMAIN_FE_CLIENT || 'https://your-frontend.com'}verify-account?token=${token}&email=${encodeURIComponent(email)}`;
-    console.log('[DEBUG] Verify link:', verifyLink);
-
-    try {
-      await sendEmail({
-        to: email,
-        subject: 'Verifikasi Email - Klinik',
-        html: `
-          <p>Halo ${name},</p>
-          <p>Silakan klik link berikut untuk verifikasi email kamu (berlaku 24 jam):</p>
-          <p><a href="${verifyLink}">${verifyLink}</a></p>
-          <p>Jika kamu tidak membuat akun, abaikan email ini.</p>
-        `
-      });
-      console.log('[DEBUG] Email sent to:', email);
-    } catch (emailErr) {
-      console.error('[DEBUG] Email failed:', emailErr);
-    }
-
-    return res.json({ success: true, message: 'Akun dibuat. Cek email untuk verifikasi.' });
+    return res.json({
+      success: true,
+      message: 'Akun berhasil dibuat. Silakan cek email untuk verifikasi.'
+    });
 
   } catch (err) {
-    console.error('[REGISTER] Error:', err);
-    return res.status(500).json({ message: 'Register gagal', error: err.message });
+    console.error('[REGISTER ERROR]', err);
+    return res.status(500).json({
+      message: 'Register gagal',
+      error: err.message
+    });
   }
 });
+
 
 // bisa GET atau POST. POST lebih aman (token di body).
 route.post('/verify-email', async (req, res) => {
