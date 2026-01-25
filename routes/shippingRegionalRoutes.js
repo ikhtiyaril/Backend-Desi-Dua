@@ -18,15 +18,23 @@ const DEFAULT_WEIGHT = 3; // KG
  * - destination_village_code (REQUIRED)
  */
 router.get("/shipping-cost", async (req, res) => {
+  console.log("➡️ HIT /shipping-cost");
+  console.log("Query:", req.query);
+
   try {
     const { destination_village_code } = req.query;
 
     if (!destination_village_code) {
+      console.warn("❌ destination_village_code missing");
       return res.status(400).json({
         is_success: false,
         message: "destination_village_code is required",
       });
     }
+
+    console.log("Origin:", ORIGIN_VILLAGE_CODE);
+    console.log("Destination:", destination_village_code);
+    console.log("Weight:", DEFAULT_WEIGHT);
 
     const response = await expeditionApi.get(
       "/expedition/shipping-cost",
@@ -39,15 +47,29 @@ router.get("/shipping-cost", async (req, res) => {
       }
     );
 
-    res.json(response.data);
+    console.log("✅ Expedition API Status:", response.status);
+    console.log("✅ Expedition API Data:", response.data);
+
+    return res.json(response.data);
   } catch (error) {
-    res.status(500).json({
+    console.error("🔥 Shipping Cost Error");
+
+    if (error.response) {
+      console.error("Status:", error.response.status);
+      console.error("Data:", error.response.data);
+      console.error("Headers:", error.response.headers);
+    } else {
+      console.error("Message:", error.message);
+    }
+
+    return res.status(500).json({
       is_success: false,
       message: "Failed to fetch shipping cost",
       error: error.response?.data || error.message,
     });
   }
 });
+
 /**
  * ==========================
  * GET PROVINCES

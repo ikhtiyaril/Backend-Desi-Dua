@@ -40,8 +40,11 @@ router.post('/', verifyToken, async (req, res) => {
     console.log("User:", req.user);
 
     const { method, merchant_ref, amount, order_items,id } = req.body;
-    const { name, email, phone } = req.user;
-
+    console.log("YANG INI ADAKAH?")
+    console.log(req.user.data.dataValues)
+const { name, phone, email } = req.user.data.dataValues;
+console.log("INI CONSOLE LOG BUAT REQ USER")
+    console.log(name,email,phone)
     let signature = crypto
       .createHmac("sha256", process.env.PRIVATE_KEY_TRIPAY)
       .update(process.env.MERCHANT_TRIPAY + merchant_ref + amount)
@@ -124,44 +127,77 @@ router.post('/fee', async (req, res) => {
   }
 });
 
-router.post("/callback", express.json({ verify: rawBodySaver }), (req, res) => {
-  try {
-    // 1. Verifikasi signature
-    const signature = req.headers["x-callback-signature"];
-    const expected = crypto
-      .createHmac("sha256", process.env.PRIVATE_KEY_TRIPAY)
-      .update(req.rawBody)
-      .digest("hex");
+router.post(
+  "/callback",
+  express.json({ verify: rawBodySaver }),
+  async (req, res) => {
+    try {
+      // 1️⃣ Verify signature
+      const signature = req.headers["x-callback-signature"];
+      const expected = crypto
+        .createHmac("sha256", process.env.PRIVATE_KEY_TRIPAY)
+        .update(req.rawBody)
+        .digest("hex");
 
-    if (signature !== expected) {
-      return res.status(403).json({
-        success: false,
-        message: "Invalid signature"
+      if (signature !== expected) {
+        return res.status(403).json({ success: false });
+      }
+
+      const payload = req.body;
+      const tripayReference = payload.reference;
+      const tripayStatus = payload.status; // PAID | UNPAID | EXPIRED
+
+      // 2️⃣ Cari payment session
+      const session = await PaymentSession.findOne({
+        where: { "session_data.reference": tripayReference },
       });
+
+      if (!session) {
+        return res.status(200).json({ success: true }); // avoid retry
+      }
+
+      // 3️⃣ Idempotent guard
+      if (session.status === "PAID") {
+        return res.status(200).json({ success: true });
+      }
+
+      // 4️⃣ Update payment session
+      await session.update({
+        status: tripayStatus,
+      });
+
+      // 5️⃣ Routing ke entity
+      if (tripayStatus === "PAID") {
+        if (session.related_type === "order") {
+          await Order.update(
+            {
+              payment_status: "PAID",
+              status: "processing",
+              payment_method: payload.payment_method,
+            },
+            { where: { id: session.related_id } }
+          );
+        }
+
+        if (session.related_type === "booking") {
+          await Booking.update(
+            {
+              payment_status: "paid",
+              status: "confirmed",
+              payment_method: payload.payment_method,
+            },
+            { where: { id: session.related_id } }
+          );
+        }
+      }
+
+      return res.status(200).json({ success: true });
+    } catch (err) {
+      console.error(err);
+      return res.status(200).json({ success: true }); // prevent retry storm
     }
-
-    // 2. Proses datanya
-    const data = req.body;
-
-    if (data.status === "PAID") {
-      // update database: order -> PAID
-    }
-
-    // 3. BALAS sesuai permintaan Tripay
-    return res.status(200).json({
-      success: true,
-      message: "Callback accepted"
-    });
-
-  } catch (err) {
-    console.error(err);
-
-    return res.status(500).json({
-      success: false,
-      message: "Server error"
-    });
   }
-});
+);
 
 function rawBodySaver(req, res, buf) {
   req.rawBody = buf.toString();
@@ -170,7 +206,8 @@ function rawBodySaver(req, res, buf) {
 router.post("/checkout", verifyToken, async (req, res) => {
   try {
     console.log("\n========== PAYMENT CHECKOUT ==========");
-
+console.log("INI BODY",req.body)
+console.log("INI USER",req.user)
     const { amount, paymentMethod, orderItems = [], reference, id } = req.body;
     const { name, email, phone, id: userId } = req.user;
 
