@@ -12,6 +12,9 @@ const { sendPush } = require("./utils/push");
 const cron = require("node-cron");
 require("./cron/bookingReminders");
 
+
+
+
 app.use(session({
   secret: process.env.SECRET,
   resave: false,
@@ -21,6 +24,9 @@ app.use(session({
 
 app.use(passport.initialize());
 app.use(passport.session());
+
+app.use('/api/payment',require('./routes/paymentRoutes'))
+
 
 app.use(express.json());
 
@@ -67,7 +73,6 @@ app.use('/api/prescription',require('./routes/prescriptionRoutes'))
 app.use('/api/categories',require('./routes/categoryRoutes'))
 app.use('/api/posts',require('./routes/postsRoutes'))
 app.use('/api/call',require('./routes/callRoutes'))
-app.use('/api/payment',require('./routes/paymentRoutes'))
 app.use('/api/medical-record',require('./routes/medicalRecordRoutes'))
 app.use('/api/clinic-profile',require('./routes/clinicProfileRoutes'))
 app.use("/api/shipping", require('./routes/shippingRegionalRoutes'));
