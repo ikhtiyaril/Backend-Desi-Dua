@@ -127,19 +127,47 @@ router.post('/fee', async (req, res) => {
   }
 });
 
+function rawBodySaver(req, res, buf, encoding) {
+  if (buf && buf.length) {
+    req.rawBody = buf.toString(encoding || "utf8");
+  }
+}
+
+
 router.post(
   "/callback",
   express.json({ verify: rawBodySaver }),
   async (req, res) => {
     try {
+      /* ================= DEBUG AWAL ================= */
+      console.log("➡️ CALLBACK HIT");
+      console.log("Content-Type:", req.headers["content-type"]);
+      console.log("Signature Header:", req.headers["x-callback-signature"]);
+      console.log("RawBody Exist:", !!req.rawBody);
+      console.log("RawBody Length:", req.rawBody?.length);
+      console.log("Parsed Body:", req.body);
+      /* =============================================== */
+
       // 1️⃣ Verify signature
+      if (!req.rawBody) {
+        console.error("❌ RAW BODY TIDAK TERBACA");
+        return res.status(400).json({ success: false });
+      }
+
       const signature = req.headers["x-callback-signature"];
+
       const expected = crypto
         .createHmac("sha256", process.env.PRIVATE_KEY_TRIPAY)
-        .update(req.rawBody)
+        .update(req.rawBody, "utf8")
         .digest("hex");
 
+      /* ================= DEBUG SIGNATURE ============== */
+      console.log("Expected Signature:", expected);
+      console.log("Incoming Signature:", signature);
+      /* =============================================== */
+
       if (signature !== expected) {
+        console.error("❌ SIGNATURE TIDAK VALID");
         return res.status(403).json({ success: false });
       }
 
@@ -147,17 +175,24 @@ router.post(
       const tripayReference = payload.reference;
       const tripayStatus = payload.status; // PAID | UNPAID | EXPIRED
 
+      /* ================= DEBUG PAYLOAD ================ */
+      console.log("Tripay Reference:", tripayReference);
+      console.log("Tripay Status:", tripayStatus);
+      /* =============================================== */
+
       // 2️⃣ Cari payment session
       const session = await PaymentSession.findOne({
         where: { "session_data.reference": tripayReference },
       });
 
       if (!session) {
-        return res.status(200).json({ success: true }); // avoid retry
+        console.warn("⚠️ PAYMENT SESSION TIDAK DITEMUKAN");
+        return res.status(200).json({ success: true });
       }
 
       // 3️⃣ Idempotent guard
       if (session.status === "PAID") {
+        console.log("ℹ️ SESSION SUDAH PAID (IDEMPOTENT)");
         return res.status(200).json({ success: true });
       }
 
@@ -165,6 +200,8 @@ router.post(
       await session.update({
         status: tripayStatus,
       });
+
+      console.log("✅ PAYMENT SESSION UPDATED:", tripayStatus);
 
       // 5️⃣ Routing ke entity
       if (tripayStatus === "PAID") {
@@ -177,6 +214,7 @@ router.post(
             },
             { where: { id: session.related_id } }
           );
+          console.log("✅ ORDER UPDATED");
         }
 
         if (session.related_type === "booking") {
@@ -188,20 +226,21 @@ router.post(
             },
             { where: { id: session.related_id } }
           );
+          console.log("✅ BOOKING UPDATED");
         }
       }
 
       return res.status(200).json({ success: true });
     } catch (err) {
-      console.error(err);
-      return res.status(200).json({ success: true }); // prevent retry storm
+      console.error("🔥 CALLBACK ERROR:", err);
+      return res.status(200).json({ success: true });
     }
   }
 );
 
-function rawBodySaver(req, res, buf) {
-  req.rawBody = buf.toString();
-}
+/* ================= RAW BODY SAVER ================= */
+
+
 
 router.post("/checkout", verifyToken, async (req, res) => {
   try {
