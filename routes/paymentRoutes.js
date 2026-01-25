@@ -2,7 +2,7 @@ const express = require('express')
 const axios = require('axios')
 const crypto =require('crypto')
 const verifyToken = require("../middleware/verifyToken");
-const {PaymentSession,Order} = require("../models")
+const {PaymentSession,Order,Booking} = require("../models")
 const router = express.Router();
 const { Sequelize } = require("sequelize");
 
