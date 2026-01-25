@@ -136,51 +136,49 @@ function rawBodySaver(req, res, buf, encoding) {
 
 router.post(
   "/callback",
-  express.json({ verify: rawBodySaver }),
+  express.raw({ type: "application/json" }),
   async (req, res) => {
     try {
       /* ================= DEBUG AWAL ================= */
       console.log("➡️ CALLBACK HIT");
       console.log("Content-Type:", req.headers["content-type"]);
       console.log("Signature Header:", req.headers["x-callback-signature"]);
-      console.log("RawBody Exist:", !!req.rawBody);
-      console.log("RawBody Length:", req.rawBody?.length);
-      console.log("Parsed Body:", req.body);
+      console.log("RawBody Exist:", !!req.body);
+      console.log("RawBody Length:", req.body?.length);
       /* =============================================== */
 
-      // 1️⃣ Verify signature
-      if (!req.rawBody) {
+      if (!req.body) {
         console.error("❌ RAW BODY TIDAK TERBACA");
         return res.status(400).json({ success: false });
       }
 
+      const rawBody = req.body.toString("utf8");
       const signature = req.headers["x-callback-signature"];
 
       const expected = crypto
         .createHmac("sha256", process.env.PRIVATE_KEY_TRIPAY)
-        .update(req.rawBody, "utf8")
+        .update(rawBody)
         .digest("hex");
 
-      /* ================= DEBUG SIGNATURE ============== */
       console.log("Expected Signature:", expected);
       console.log("Incoming Signature:", signature);
-      /* =============================================== */
 
       if (signature !== expected) {
         console.error("❌ SIGNATURE TIDAK VALID");
         return res.status(403).json({ success: false });
       }
 
-      const payload = req.body;
-      const tripayReference = payload.reference;
-      const tripayStatus = payload.status; // PAID | UNPAID | EXPIRED
+      // ✅ BARU PARSE SETELAH SIGNATURE VALID
+      const payload = JSON.parse(rawBody);
 
-      /* ================= DEBUG PAYLOAD ================ */
+      console.log("Parsed Body:", payload);
+
+      const tripayReference = payload.reference;
+      const tripayStatus = payload.status;
+
       console.log("Tripay Reference:", tripayReference);
       console.log("Tripay Status:", tripayStatus);
-      /* =============================================== */
 
-      // 2️⃣ Cari payment session
       const session = await PaymentSession.findOne({
         where: { "session_data.reference": tripayReference },
       });
@@ -190,20 +188,14 @@ router.post(
         return res.status(200).json({ success: true });
       }
 
-      // 3️⃣ Idempotent guard
       if (session.status === "PAID") {
         console.log("ℹ️ SESSION SUDAH PAID (IDEMPOTENT)");
         return res.status(200).json({ success: true });
       }
 
-      // 4️⃣ Update payment session
-      await session.update({
-        status: tripayStatus,
-      });
+      await session.update({ status: tripayStatus });
+      console.log("✅ PAYMENT SESSION UPDATED");
 
-      console.log("✅ PAYMENT SESSION UPDATED:", tripayStatus);
-
-      // 5️⃣ Routing ke entity
       if (tripayStatus === "PAID") {
         if (session.related_type === "order") {
           await Order.update(
