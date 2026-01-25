@@ -4,6 +4,8 @@ const crypto =require('crypto')
 const verifyToken = require("../middleware/verifyToken");
 const {PaymentSession,Order} = require("../models")
 const router = express.Router();
+const { Sequelize } = require("sequelize");
+
 
 router.get('/', async (req, res) => {
   try {
@@ -180,8 +182,11 @@ router.post(
       console.log("Tripay Status:", tripayStatus);
 
       const session = await PaymentSession.findOne({
-        where: { "session_data.reference": tripayReference },
-      });
+  where: Sequelize.where(
+    Sequelize.json("session_data.data.reference"),
+    tripayReference
+  ),
+});
 
       if (!session) {
         console.warn("⚠️ PAYMENT SESSION TIDAK DITEMUKAN");
