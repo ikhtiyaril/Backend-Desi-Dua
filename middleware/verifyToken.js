@@ -19,14 +19,14 @@ module.exports = async function verifyAuthFlexible(req, res, next) {
     // 1️⃣ Kalau role ada → langsung cek tabelnya
     if (role === "doctor") {
       account = await Doctor.findByPk(decoded.id);
-    } else if (role === "user") {
+    } else if (role === "user" || role === "admin") {
       account = await User.findByPk(decoded.id);
     }
 
     // 2️⃣ Fallback (token lama / route bersama)
     if (!account) {
       account = await User.findByPk(decoded.id);
-      role = account ? "user" : null;
+      role = account?.role || "user"; // 👈 admin ikut kebaca
     }
 
     if (!account) {
@@ -42,7 +42,7 @@ module.exports = async function verifyAuthFlexible(req, res, next) {
     req.user = {
       id: account.id,
       role,
-      data: account, // kalau mau full object
+      data: account,
     };
 
     next();
