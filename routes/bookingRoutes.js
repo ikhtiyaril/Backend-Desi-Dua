@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { Booking, Service, Doctor, User , BlockedTime,MedicalRecord,DoctorSchedule,WalletDoctor,sequelize } = require('../models'); // pastikan path sesuai
+const { Booking, Service, Doctor, User , BlockedTime,MedicalRecord,DoctorSchedule,WalletDoctor,sequelize,PushToken } = require('../models'); // pastikan path sesuai
 const { Transaction, Op } = require('sequelize');
 const verifyToken = require("../middleware/verifyToken");
 
