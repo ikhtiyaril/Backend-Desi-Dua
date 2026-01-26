@@ -74,6 +74,7 @@ router.post("/create", verifyToken, async (req, res) => {
         // SHIPPING COST (ONLY)
         // ===============================
         shipping_cost: shipping?.cost ?? null,
+        ekspedition :shipping?.courier_name ?? null,
 
         // ===============================
         // ADDRESS SNAPSHOT
@@ -323,12 +324,7 @@ router.put("/admin/orders/:id/status", verifyToken, async (req, res) => {
     const { status } = req.body;
 
     const validStatus = [
-      "pending",
-      "processing",
-      "shipped",
-      "delivered",
-      "completed",
-      "cancelled"
+     "pending", "processing", "delivered", "cancelled","completed"
     ];
 
     if (!validStatus.includes(status)) {
@@ -347,6 +343,201 @@ router.put("/admin/orders/:id/status", verifyToken, async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 });
+
+router.put("/:id/shipping", verifyToken, async (req, res) => {
+  const t = await Order.sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+    const { ekspedition, no_resi } = req.body;
+
+    console.log("UPDATE SHIPPING ORDER ID:", id);
+    console.log("REQ BODY:", req.body);
+
+    // ===============================
+    // VALIDATION
+    // ===============================
+    if (!ekspedition || !no_resi) {
+      await t.rollback();
+      return res.status(400).json({
+        message: "ekspedition and no_resi are required",
+      });
+    }
+
+    // ===============================
+    // FIND ORDER (OWNERSHIP SAFE)
+    // ===============================
+    const order = await Order.findOne({
+      where: {
+        id,
+        user_id: req.user.id, // 🔒 owner check
+      },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+
+    if (!order) {
+      await t.rollback();
+      return res.status(404).json({
+        message: "Order not found",
+      });
+    }
+
+    // ===============================
+    // BUSINESS RULE
+    // ===============================
+    if (order.payment_status !== "PAID") {
+      await t.rollback();
+      return res.status(400).json({
+        message: "Order must be PAID before adding shipping info",
+      });
+    }
+
+    // ===============================
+    // UPDATE SHIPPING INFO
+    // ===============================
+    order.ekspedition = ekspedition;
+    order.no_resi = no_resi;
+    order.status = "processing";
+
+    await order.save({ transaction: t });
+
+    // ===============================
+    // COMMIT
+    // ===============================
+    await t.commit();
+
+    return res.json({
+      success: true,
+      message: "Shipping info updated",
+      order: {
+        id: order.id,
+        ekspedition: order.ekspedition,
+        no_resi: order.no_resi,
+        status: order.status,
+      },
+    });
+
+  } catch (err) {
+    console.error("UPDATE SHIPPING ERROR:", err);
+    await t.rollback();
+
+    return res.status(500).json({
+      message: "Server error",
+    });
+  }
+});
+
+router.put("/admin/orders/:id/resi", verifyToken, async (req, res) => {
+  const t = await Order.sequelize.transaction();
+
+  console.log("=== PUT RESI CALLED ===");
+  console.log("PARAMS ID:", req.params.id);
+  console.log("BODY:", req.body);
+
+  try {
+    const { id } = req.params;
+    const { ekspedition, no_resi, status } = req.body;
+
+    // ===============================
+    // VALIDATION
+    // ===============================
+    if (!no_resi || typeof no_resi !== "string") {
+      console.log("❌ VALIDATION FAILED: no_resi kosong / invalid");
+      await t.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "no_resi wajib diisi",
+      });
+    }
+
+    // ===============================
+    // FIND ORDER (LOCK FOR UPDATE)
+    // ===============================
+    const order = await Order.findByPk(id, {
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+
+    console.log("ORDER FOUND:", order ? order.id : null);
+
+    if (!order) {
+      await t.rollback();
+      return res.status(404).json({
+        success: false,
+        message: "Order tidak ditemukan",
+      });
+    }
+
+    // ===============================
+    // BUSINESS RULE
+    // ===============================
+    console.log("PAYMENT STATUS:", order.payment_status);
+
+    if (order.payment_status !== "PAID") {
+      await t.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Order belum dibayar",
+      });
+    }
+
+    // ===============================
+    // CEGAH RESI DOBEL (OPTIONAL)
+    // ===============================
+    console.log("EXISTING RESI:", order.no_resi);
+
+    
+
+    // ===============================
+    // UPDATE DATA
+    // ===============================
+    console.log("UPDATING ORDER...");
+
+    if (ekspedition) {
+      order.ekspedition = ekspedition;
+    }
+
+    order.no_resi = no_resi;
+
+    // auto status logic
+    if (status) {
+      order.status = status;
+    } else if (order.status === "processing") {
+      order.status = "delivered";
+    }
+
+    await order.save({ transaction: t });
+
+    await t.commit();
+
+    console.log("✅ RESI UPDATED SUCCESSFULLY");
+
+    return res.json({
+      success: true,
+      message: "Resi berhasil diperbarui",
+      order: {
+        id: order.id,
+        ekspedition: order.ekspedition,
+        no_resi: order.no_resi,
+        status: order.status,
+      },
+    });
+
+  } catch (err) {
+    console.error("🔥 UPDATE RESI ERROR:", err);
+
+    await t.rollback();
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: err.message,
+    });
+  }
+});
+
+
 
 module.exports = router;
 

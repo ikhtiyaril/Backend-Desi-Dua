@@ -22,7 +22,7 @@ module.exports = (sequelize, DataTypes) => {
 
       // 🧾 Status order (logistik)
       status: {
-        type: DataTypes.ENUM("pending", "processing", "delivered", "cancelled"),
+        type: DataTypes.ENUM("pending", "processing", "delivered", "cancelled","completed"),
         allowNull: false,
         defaultValue: "pending",
       },
@@ -47,7 +47,7 @@ module.exports = (sequelize, DataTypes) => {
           // ===============================
       // 📦 SHIPPING INFO
       // ===============================
-      courier_code: {
+      ekspedition: {
         type: DataTypes.STRING,
         allowNull: true,
       },
