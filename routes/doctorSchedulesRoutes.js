@@ -95,6 +95,51 @@ router.put('/bulk-update', verifyToken, async (req, res) => {
   }
 });
 
+router.put("/:id", verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      doctor_id,
+      day_of_week,
+      start_time,
+      end_time,
+      break_start,
+      break_end,
+    } = req.body;
+
+    console.log("[UPDATE SCHEDULE]", id, req.body);
+
+    if (!doctor_id || day_of_week === "" || !start_time || !end_time) {
+      return res.status(400).json({
+        message: "doctor_id, day_of_week, start_time, end_time wajib diisi",
+      });
+    }
+
+    const schedule = await DoctorSchedule.findByPk(id);
+    if (!schedule) {
+      return res.status(404).json({ message: "Jadwal tidak ditemukan" });
+    }
+
+    await schedule.update({
+      doctor_id,
+      day_of_week,
+      start_time,
+      end_time,
+      break_start: break_start || null,
+      break_end: break_end || null,
+    });
+
+    return res.json({
+      success: true,
+      message: "Jadwal berhasil diperbarui",
+      data: schedule,
+    });
+
+  } catch (err) {
+    console.error("[UPDATE SCHEDULE ERROR]", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 
 
 // GET all schedules
