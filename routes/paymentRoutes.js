@@ -116,7 +116,7 @@ router.post(
 
 
 router.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+router.use(express.urlencoded({ extended: true }));
 
 
 router.get('/', async (req, res) => {
