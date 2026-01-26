@@ -7,129 +7,36 @@ const router = express.Router();
 const { Sequelize } = require("sequelize");
 
 
-function rawBodySaver(req, res, buf, encoding) {
-  if (buf && buf.length) {
-    req.rawBody = buf.toString(encoding || "utf8");
-  }
-}
-
-
-router.post(
-  "/callback",
-  express.raw({ type: "application/json" }),
-  async (req, res) => {
-    try {
-      /* ================= DEBUG AWAL ================= */
-      console.log("➡️ CALLBACK HIT");
-      console.log("Content-Type:", req.headers["content-type"]);
-      console.log("Signature Header:", req.headers["x-callback-signature"]);
-      console.log("RawBody Exist:", !!req.body);
-      console.log("RawBody Length:", req.body?.length);
-      /* =============================================== */
-
-      if (!req.body) {
-        console.error("❌ RAW BODY TIDAK TERBACA");
-        return res.status(400).json({ success: false });
-      }
-
-      const rawBody = req.body.toString("utf8");
-      const signature = req.headers["x-callback-signature"];
-
-      const expected = crypto
-        .createHmac("sha256", process.env.PRIVATE_KEY_TRIPAY)
-        .update(rawBody)
-        .digest("hex");
-
-      console.log("Expected Signature:", expected);
-      console.log("Incoming Signature:", signature);
-
-      if (signature !== expected) {
-        console.error("❌ SIGNATURE TIDAK VALID");
-        return res.status(403).json({ success: false });
-      }
-
-      // ✅ BARU PARSE SETELAH SIGNATURE VALID
-      const payload = JSON.parse(rawBody);
-
-      console.log("Parsed Body:", payload);
-
-      const tripayReference = payload.reference;
-      const tripayStatus = payload.status;
-
-      console.log("Tripay Reference:", tripayReference);
-      console.log("Tripay Status:", tripayStatus);
-
-      const session = await PaymentSession.findOne({
-  where: Sequelize.where(
-    Sequelize.json("session_data.data.reference"),
-    tripayReference
-  ),
-});
-
-      if (!session) {
-        console.warn("⚠️ PAYMENT SESSION TIDAK DITEMUKAN");
-        return res.status(200).json({ success: true });
-      }
-
-      if (session.status === "PAID") {
-        console.log("ℹ️ SESSION SUDAH PAID (IDEMPOTENT)");
-        return res.status(200).json({ success: true });
-      }
-
-      await session.update({ status: tripayStatus });
-      console.log("✅ PAYMENT SESSION UPDATED");
-
-      if (tripayStatus === "PAID") {
-        if (session.related_type === "order") {
-          await Order.update(
-            {
-              payment_status: "PAID",
-              status: "processing",
-              payment_method: payload.payment_method,
-            },
-            { where: { id: session.related_id } }
-          );
-          console.log("✅ ORDER UPDATED");
-        }
-
-        if (session.related_type === "booking") {
-          await Booking.update(
-            {
-              payment_status: "paid",
-              status: "confirmed",
-              payment_method: payload.payment_method,
-            },
-            { where: { id: session.related_id } }
-          );
-          console.log("✅ BOOKING UPDATED");
-        }
-      }
-
-      return res.status(200).json({ success: true });
-    } catch (err) {
-      console.error("🔥 CALLBACK ERROR:", err);
-      return res.status(200).json({ success: true });
-    }
-  }
-);
 
 
 
-router.use(express.json());
-router.use(express.urlencoded({ extended: true }));
+
 
 
 router.get('/', async (req, res) => {
+  console.log("\n========== [TRIPAY PAYMENT CHANNEL] ==========");
+  console.log("➡️ HIT ENDPOINT : GET /api/payment");
+  console.log("⏰ TIME        :", new Date().toISOString());
+  console.log("🌍 TRIPAY URL  :", process.env.TRIPAY_URL);
+  console.log("🔑 API KEY OK? :", !!process.env.API_KEY_TRIPAY);
+
   try {
+    console.log("➡️ REQUESTING TRIPAY...");
+
     const response = await axios.get(
       `${process.env.TRIPAY_URL}/merchant/payment-channel`,
       {
         headers: {
-          Authorization: `Bearer ${process.env.API_KEY_TRIPAY}`
+          Authorization: `Bearer ${process.env.API_KEY_TRIPAY}`,
+          "Content-Type": "application/json"
         },
-        timeout: 10000 // biar ga ngadat kalau Tripay lambat
+        timeout: 10000
       }
     );
+
+    console.log("✅ TRIPAY RESPONSE RECEIVED");
+    console.log("Status Code :", response.status);
+    console.log("Response Data :", response.data);
 
     return res.status(200).json({
       success: true,
@@ -137,7 +44,22 @@ router.get('/', async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Tripay Error:", error.response?.data || error.message);
+    console.error("❌ TRIPAY REQUEST FAILED");
+
+    // ================= AXIOS ERROR DETAIL =================
+    if (error.response) {
+      console.error("📛 RESPONSE ERROR");
+      console.error("Status :", error.response.status);
+      console.error("Data   :", error.response.data);
+    } else if (error.request) {
+      console.error("📡 NO RESPONSE FROM TRIPAY");
+      console.error(error.request);
+    } else {
+      console.error("⚠️ AXIOS ERROR");
+      console.error("Message :", error.message);
+    }
+
+    console.error("🔍 FULL ERROR :", error);
 
     return res.status(error.response?.status || 500).json({
       success: false,
@@ -146,6 +68,7 @@ router.get('/', async (req, res) => {
     });
   }
 });
+
 
 router.post('/', verifyToken, async (req, res) => {
   try {

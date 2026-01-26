@@ -12,6 +12,7 @@ const { sendPush } = require("./utils/push");
 const cron = require("node-cron");
 require("./cron/bookingReminders");
 
+app.use('/api/callback',require('./routes/callbackPaymentRoutes'))
 
 
 
@@ -24,12 +25,6 @@ app.use(session({
 
 app.use(passport.initialize());
 app.use(passport.session());
-
-app.use('/api/payment',require('./routes/paymentRoutes'))
-
-
-app.use(express.json());
-
 
 app.use(cors({
   origin: [
@@ -45,6 +40,14 @@ app.use(cors({
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   credentials: true
 }));
+
+app.use('/api/callback',require('./routes/callbackPaymentRoutes'))
+
+
+app.use(express.json());
+
+
+
 
 
 
@@ -78,6 +81,7 @@ app.use('/api/clinic-profile',require('./routes/clinicProfileRoutes'))
 app.use("/api/shipping", require('./routes/shippingRegionalRoutes'));
 app.use("/api/revenue", require('./routes/revenueRoutes'));
 app.use("/api/notification", require('./routes/notificationRoutes'));
+app.use('/api/payment',require('./routes/paymentRoutes'))
 
 
 
