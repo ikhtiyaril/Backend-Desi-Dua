@@ -578,16 +578,25 @@ router.delete('/:id', async (req, res) => {
 
 // Ubah status booking
 
-
 router.patch("/:id/status", async (req, res) => {
   const transaction = await Booking.sequelize.transaction();
 
+  const debug = (step, data = "") => {
+    console.log(`[BOOKING_STATUS_DEBUG] ${step}`, data);
+  };
+
   try {
+    debug("REQUEST_RECEIVED", {
+      params: req.params,
+      body: req.body
+    });
+
     const { id } = req.params;
     const { status } = req.body;
 
     const allowedStatus = ["pending", "confirmed", "cancelled", "completed"];
     if (!allowedStatus.includes(status)) {
+      debug("INVALID_STATUS", status);
       await transaction.rollback();
       return res.status(400).json({ message: "Invalid status value" });
     }
@@ -602,17 +611,28 @@ router.patch("/:id/status", async (req, res) => {
     });
 
     if (!booking) {
+      debug("BOOKING_NOT_FOUND", id);
       await transaction.rollback();
       return res.status(404).json({ message: "Booking not found" });
     }
 
+    debug("BOOKING_FOUND", {
+      id: booking.id,
+      oldStatus: booking.status,
+      payment_status: booking.payment_status,
+      is_wallet_processed: booking.is_wallet_processed
+    });
+
     booking.status = status;
     await booking.save({ transaction });
+
+    debug("STATUS_UPDATED", status);
 
     /* =========================
        AUTO MEDICAL RECORD
     ========================= */
     if (status === "confirmed" && !booking.medicalRecord) {
+      debug("CREATE_MEDICAL_RECORD");
       await MedicalRecord.create(
         {
           booking_id: booking.id,
@@ -621,6 +641,11 @@ router.patch("/:id/status", async (req, res) => {
         },
         { transaction }
       );
+    } else {
+      debug("SKIP_MEDICAL_RECORD", {
+        status,
+        hasMedicalRecord: !!booking.medicalRecord
+      });
     }
 
     /* =========================
@@ -631,11 +656,22 @@ router.patch("/:id/status", async (req, res) => {
       booking.payment_status === "paid" &&
       booking.is_wallet_processed === false
     ) {
-      if (!booking.Service) throw new Error("Service not found");
+      debug("WALLET_PROCESS_START");
+
+      if (!booking.Service) {
+        debug("SERVICE_NOT_FOUND");
+        throw new Error("Service not found");
+      }
 
       const price = Number(booking.Service.price);
       const percent = booking.Service.is_live ? 0.7 : 0.9;
       const income = price * percent;
+
+      debug("WALLET_CALCULATION", {
+        price,
+        percent,
+        income
+      });
 
       const [wallet] = await WalletDoctor.findOrCreate({
         where: { doctor_id: booking.doctor_id },
@@ -649,12 +685,22 @@ router.patch("/:id/status", async (req, res) => {
 
       booking.is_wallet_processed = true;
       await booking.save({ transaction });
+
+      debug("WALLET_UPDATED", {
+        doctor_id: booking.doctor_id,
+        new_balance: wallet.balance
+      });
+    } else {
+      debug("SKIP_WALLET", {
+        status,
+        payment_status: booking.payment_status,
+        is_wallet_processed: booking.is_wallet_processed
+      });
     }
 
     /* =========================
        🔔 NOTIFICATIONS
     ========================= */
-
     let notifTitle = "";
     let notifBody = "";
     let notifType = "";
@@ -678,6 +724,8 @@ router.patch("/:id/status", async (req, res) => {
     }
 
     if (notifType) {
+      debug("NOTIFICATION_START", notifType);
+
       const userToken = await PushToken.findOne({
         where: { user_id: booking.patient_id }
       });
@@ -698,11 +746,25 @@ router.patch("/:id/status", async (req, res) => {
         { transaction }
       );
 
-      if (userToken) await sendPush(userToken.expo_token, notifTitle, notifBody);
-      if (doctorToken) await sendPush(doctorToken.expo_token, notifTitle, notifBody);
+      if (userToken) {
+        debug("SEND_PUSH_USER");
+        await sendPush(userToken.expo_token, notifTitle, notifBody);
+      } else {
+        debug("NO_USER_PUSH_TOKEN");
+      }
+
+      if (doctorToken) {
+        debug("SEND_PUSH_DOCTOR");
+        await sendPush(doctorToken.expo_token, notifTitle, notifBody);
+      } else {
+        debug("NO_DOCTOR_PUSH_TOKEN");
+      }
+    } else {
+      debug("NO_NOTIFICATION_TRIGGERED");
     }
 
     await transaction.commit();
+    debug("TRANSACTION_COMMIT");
 
     return res.json({
       message: "Booking updated + notification sent",
@@ -710,13 +772,16 @@ router.patch("/:id/status", async (req, res) => {
     });
 
   } catch (err) {
+    debug("ERROR", err.message);
     await transaction.rollback();
+
     return res.status(500).json({
       message: "Failed to update booking",
       error: err.message
     });
   }
 });
+
 
 
 
