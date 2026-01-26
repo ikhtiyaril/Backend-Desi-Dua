@@ -170,28 +170,56 @@ router.post('/fee', async (req, res) => {
 
 
 router.post("/checkout", verifyToken, async (req, res) => {
-  try {
-    console.log("\n========== PAYMENT CHECKOUT ==========");
-console.log("INI BODY",req.body)
-console.log("INI USER",req.user)
-    const { amount, paymentMethod, orderItems = [], reference, id } = req.body;
-    const { name, email, phone, id: userId } = req.user;
+  console.log("\n========== [CHECKOUT START] ==========");
 
+  try {
+    // ===============================
+    // DEBUG REQUEST
+    // ===============================
+    console.log("[REQ BODY]", req.body);
+    console.log("[REQ USER]", req.user);
+
+    const { amount, paymentMethod, orderItems = [], reference, id } = req.body;
+    const { name, email, phone, id: userId } = req.user.data.dataValues;
+
+    // ===============================
+    // VALIDATION
+    // ===============================
     if (!name || !email || !phone || !amount || !paymentMethod || !id) {
-      return res.status(400).json({ success: false, message: "Missing required fields" });
+      console.warn("[VALIDATION FAILED]");
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields"
+      });
     }
 
     // ===============================
     // CHECK ORDER
     // ===============================
+    console.log("[CHECK ORDER] order_id:", id);
+
     const order = await Order.findByPk(id);
-    if (!order || order.user_id !== userId) {
+
+    if (!order) {
+      console.warn("[ORDER NOT FOUND]");
       return res.status(404).json({ success: false, message: "Order not found" });
     }
+
+    if (order.user_id !== userId) {
+      console.warn("[ORDER USER MISMATCH]", {
+        order_user: order.user_id,
+        token_user: userId
+      });
+      return res.status(403).json({ success: false, message: "Unauthorized order access" });
+    }
+
+    console.log("[ORDER OK]", order.id);
 
     // ===============================
     // CHECK EXISTING PAYMENT
     // ===============================
+    console.log("[CHECK EXISTING PAYMENT]");
+
     const existing = await PaymentSession.findOne({
       where: {
         related_type: "order",
@@ -201,6 +229,7 @@ console.log("INI USER",req.user)
     });
 
     if (existing) {
+      console.log("[EXISTING PAYMENT FOUND]");
       return res.json({
         success: true,
         message: "Using existing payment session",
@@ -209,39 +238,42 @@ console.log("INI USER",req.user)
     }
 
     // ===============================
-    // TRIPAY CREDS
-    // ===============================
-    const API_KEY = process.env.API_KEY_TRIPAY;
-    const MERCHANT_CODE = process.env.MERCHANT_TRIPAY;
-    const PRIVATE_KEY = process.env.PRIVATE_KEY_TRIPAY;
-
-    const merchantRef = reference || `ORDER-${id}`;
-
-    // ===============================
-    // AMOUNT NORMALIZATION
+    // AMOUNT
     // ===============================
     const tripayAmount = Math.floor(Number(amount));
+    console.log("[AMOUNT NORMALIZED]", tripayAmount);
+
     if (!tripayAmount || tripayAmount <= 0) {
+      console.warn("[INVALID AMOUNT]");
       return res.status(400).json({ success: false, message: "Invalid amount" });
     }
 
     // ===============================
     // SIGNATURE
     // ===============================
-    const signString = MERCHANT_CODE + merchantRef + tripayAmount;
+    const merchantRef = reference || `ORDER-${id}`;
+    const signString =
+      process.env.MERCHANT_TRIPAY + merchantRef + tripayAmount;
+
     const signature = crypto
-      .createHmac("sha256", PRIVATE_KEY)
+      .createHmac("sha256", process.env.PRIVATE_KEY_TRIPAY)
       .update(signString)
       .digest("hex");
 
+    console.log("[SIGNATURE CREATED]", signature);
+
     // ===============================
-    // FIX ORDER ITEMS
+    // ORDER ITEMS
     // ===============================
-    const fixedOrderItems = orderItems.map(item => ({
-      name: item.name,
-      quantity: item.quantity,
-      price: Math.floor(Number(item.price))
-    }));
+    const fixedOrderItems = orderItems.map((item, i) => {
+      const fixed = {
+        name: item.name,
+        quantity: item.quantity,
+        price: Math.floor(Number(item.price))
+      };
+      console.log(`[ITEM ${i + 1}]`, fixed);
+      return fixed;
+    });
 
     // ===============================
     // PAYLOAD
@@ -258,29 +290,41 @@ console.log("INI USER",req.user)
       signature
     };
 
+    console.log("[TRIPAY PAYLOAD]", payload);
+
     // ===============================
     // SEND TO TRIPAY
     // ===============================
+    console.log("[SEND TO TRIPAY]");
+
     const tripayRes = await axios.post(
       `${process.env.TRIPAY_URL}/transaction/create`,
       payload,
       {
         headers: {
-          Authorization: `Bearer ${API_KEY}`,
+          Authorization: `Bearer ${process.env.API_KEY_TRIPAY}`,
           "Content-Type": "application/json"
-        }
+        },
+        timeout: 10000
       }
     );
 
-   const paymentData = tripayRes.data.data;
+    console.log("[TRIPAY RESPONSE]", tripayRes.data);
 
-await PaymentSession.create({
-  related_type: "order",
-  related_id: id,
-  merchant_ref: merchantRef,
-  status: paymentData.status,      // ✅ BENAR
-  session_data: tripayRes.data        // ✅ BENAR
-});
+    const paymentData = tripayRes.data.data;
+
+    // ===============================
+    // SAVE PAYMENT SESSION
+    // ===============================
+    await PaymentSession.create({
+      related_type: "order",
+      related_id: id,
+      merchant_ref: merchantRef,
+      status: paymentData.status,
+      session_data: tripayRes.data
+    });
+
+    console.log("[PAYMENT SESSION SAVED]");
 
     // ===============================
     // UPDATE ORDER
@@ -293,6 +337,9 @@ await PaymentSession.create({
       { where: { id } }
     );
 
+    console.log("[ORDER UPDATED]");
+    console.log("========== [CHECKOUT SUCCESS] ==========\n");
+
     return res.json({
       success: true,
       message: "Checkout berhasil dibuat",
@@ -300,7 +347,12 @@ await PaymentSession.create({
     });
 
   } catch (error) {
-    console.error("TRIPAY ERROR:", error.response?.data || error.message);
+    console.error("========== [CHECKOUT ERROR] ==========");
+    console.error("MESSAGE:", error.message);
+    console.error("RESPONSE:", error.response?.data);
+    console.error("STATUS:", error.response?.status);
+    console.error("======================================");
+
     return res.status(500).json({
       success: false,
       message: "Gagal membuat transaksi",
