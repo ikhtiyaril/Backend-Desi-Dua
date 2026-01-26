@@ -25,9 +25,24 @@ router.post("/create", verifyToken, async (req, res) => {
   const t = await Order.sequelize.transaction();
 
   try {
-    const userId = req.user.id;
-    const { items, total_price, payment_method } = req.body;
+    // ===============================
+    // DEBUG REQUEST
+    // ===============================
+    console.log("REQ USER:", req.user);
+    console.log("REQ BODY:", req.body);
 
+    const userId = req.user.id;
+    const {
+      items,
+      total_price,
+      payment_method,
+      shipping,
+      shipping_address,
+    } = req.body;
+
+    // ===============================
+    // VALIDATION (LAMA TETAP)
+    // ===============================
     if (!items || !Array.isArray(items) || items.length === 0) {
       await t.rollback();
       return res.status(400).json({ message: "Items are required" });
@@ -38,10 +53,14 @@ router.post("/create", verifyToken, async (req, res) => {
       return res.status(400).json({ message: "total_price is required" });
     }
 
-    // Generate code unik
+    // ===============================
+    // GENERATE ORDER CODE
+    // ===============================
     const orderCode = generateOrderCode();
 
-    // Buat order
+    // ===============================
+    // CREATE ORDER (DISESUAIKAN MODEL BARU)
+    // ===============================
     const order = await Order.create(
       {
         user_id: userId,
@@ -49,57 +68,83 @@ router.post("/create", verifyToken, async (req, res) => {
         payment_method: payment_method || null,
         order_code: orderCode,
         status: "pending",
+        payment_status: "UNPAID",
+
+        // ===============================
+        // SHIPPING COST (ONLY)
+        // ===============================
+        shipping_cost: shipping?.cost ?? null,
+
+        // ===============================
+        // ADDRESS SNAPSHOT
+        // ===============================
+        province: shipping_address?.province ?? null,
+        regency: shipping_address?.regency ?? null,
+        district: shipping_address?.district ?? null,
+        village: shipping_address?.village ?? null,
+        address_detail: shipping_address?.address_detail ?? null,
       },
       { transaction: t }
     );
 
-    // Loop item
+    // ===============================
+    // LOOP ITEMS (TIDAK DIUBAH)
+    // ===============================
     for (const item of items) {
-      const medicine = await Medicine.findByPk(item.product_id, { transaction: t });
+      const medicine = await Medicine.findByPk(item.product_id, {
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
+
       if (!medicine) {
         await t.rollback();
-        return res.status(404).json({ message: `Medicine ID ${item.product_id} not found` });
-      }
-
-      // stock check
-      if (medicine.stock < item.quantity) {
-        await t.rollback();
-        return res.status(400).json({
-          message: `Stock not enough for ${medicine.name}`
+        return res.status(404).json({
+          message: `Medicine ID ${item.product_id} not found`,
         });
       }
 
-      // kurangi stok
-      await Medicine.decrement(
-        { stock: item.quantity },
-        { where: { id: item.product_id }, transaction: t }
-      );
+      if (medicine.stock < item.quantity) {
+        await t.rollback();
+        return res.status(400).json({
+          message: `Stock not enough for ${medicine.name}`,
+        });
+      }
 
-      // create order item
+      medicine.stock -= item.quantity;
+      await medicine.save({ transaction: t });
+
       await OrderItem.create(
         {
           order_id: order.id,
           product_id: item.product_id,
           quantity: item.quantity,
-          price: item.product.price,
+          price: medicine.price,
         },
         { transaction: t }
       );
     }
 
+    // ===============================
+    // COMMIT
+    // ===============================
     await t.commit();
+
     return res.json({
       success: true,
       message: "Order created",
-      order
+      order,
     });
 
   } catch (err) {
-    console.error(err);
+    console.error("ORDER CREATE ERROR:", err);
     await t.rollback();
-    return res.status(500).json({ message: "Server error" });
+
+    return res.status(500).json({
+      message: "Server error",
+    });
   }
 });
+
 
 /* =====================================================
    USER ROUTES

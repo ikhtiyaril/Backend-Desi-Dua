@@ -43,6 +43,54 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         allowNull: false,
       },
+
+          // ===============================
+      // 📦 SHIPPING INFO
+      // ===============================
+      courier_code: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+
+      no_resi: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+
+      shipping_cost: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+      },
+
+      // ===============================
+      // 📍 SHIPPING ADDRESS (SNAPSHOT)
+      // ===============================
+      province: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+
+      regency: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+
+      district: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+
+      village: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+
+      address_detail: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+      },
+
+    
     },
     {
       tableName: "orders",
