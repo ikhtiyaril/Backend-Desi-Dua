@@ -86,23 +86,19 @@ router.post('/', upload.single('avatar'), async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
-    // Destructure dari body. Jangan ambil avatar langsung dari body karena kita override kalau ada file
     let { name, email, phone, specialization, bio, Study } = req.body;
     let avatar = req.body.avatar || null;
 
-    // Jika ada file upload, set URL avatar
     if (req.file) {
       avatar = `${process.env.BACKEND_URL}/uploads/${req.file.filename}`;
     }
 
-    // Cek email sudah ada?
     const exist = await Doctor.findOne({ where: { email } }, { transaction });
     if (exist) {
       await transaction.rollback();
       return res.status(400).json({ message: 'Email sudah terdaftar' });
     }
 
-    // Password default (boleh ganti mekanisme)
     const password = '1234asdf';
     const salt = await bcrypt.genSalt(10);
     const hash = await bcrypt.hash(password, salt);
@@ -123,9 +119,17 @@ router.post('/', upload.single('avatar'), async (req, res) => {
     }, { transaction });
 
     // =========================
-    // 2️⃣ Default Schedule (Senin-Jumat contoh)
+    // 1️⃣.5️⃣ Create WalletDoctor (AUTO)
     // =========================
-    const defaultSchedules = [1, 2, 3, 4, 5,6,7].map(day => ({
+    await WalletDoctor.create({
+      doctor_id: doctor.id,
+      balance: 0
+    }, { transaction });
+
+    // =========================
+    // 2️⃣ Default Schedule
+    // =========================
+    const defaultSchedules = [1,2,3,4,5,6,7].map(day => ({
       doctor_id: doctor.id,
       day_of_week: day,
       start_time: '08:00:00',
@@ -135,17 +139,16 @@ router.post('/', upload.single('avatar'), async (req, res) => {
     await DoctorSchedule.bulkCreate(defaultSchedules, { transaction });
 
     // =========================
-    // 3️⃣ Auto-create 2 Services (Online & Offline)
+    // 3️⃣ Auto-create Services
     // =========================
-    // Konvensi nama: "Konsultasi {dokter} - Online" / "Konsultasi {dokter} - Offline"
     const serviceOnlineData = {
       name: `Konsultasi ${doctor.name} - Online`,
       description: `Konsultasi online langsung dengan ${doctor.name}${specialization ? ` (${specialization})` : ''}`,
       duration_minutes: 30,
-      price: 0, // default, bisa diupdate nanti
+      price: 0,
       require_doctor: true,
       allow_walkin: false,
-      is_live: true,            // Online => live by default (atau admin bisa toggle)
+      is_live: true,
       is_doctor_service: true,
       exclusive_doctor_id: doctor.id,
     };
@@ -156,8 +159,8 @@ router.post('/', upload.single('avatar'), async (req, res) => {
       duration_minutes: 30,
       price: 0,
       require_doctor: true,
-      allow_walkin: true,      // offline biasanya allow walk-in
-      is_live: false,          // offline default non-live (bisa diartikan berbeda)
+      allow_walkin: true,
+      is_live: false,
       is_doctor_service: true,
       exclusive_doctor_id: doctor.id,
     };
@@ -170,12 +173,8 @@ router.post('/', upload.single('avatar'), async (req, res) => {
     // =========================
     // 4️⃣ Attach Service ↔ Doctor
     // =========================
-    // Gunakan dokter instance untuk menambahkan service — lebih aman daripada melewatkan id.
-    // Asumsinya association Doctor.belongsToMany(Service) / Service.belongsToMany(Doctor) sudah dibuat.
     await doctor.addService(doctorServiceOnline, { transaction });
     await doctor.addService(doctorServiceOffline, { transaction });
-
-    // Jika relasi satu-ke-banyak (Service.belongsTo(Doctor)), bisa juga update field exclusive_doctor_id sudah diset di create
 
     // =========================
     // 5️⃣ Commit
@@ -184,7 +183,7 @@ router.post('/', upload.single('avatar'), async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Doctor created with default schedule and ONLINE/OFFLINE services',
+      message: 'Doctor created with wallet, schedule, and services',
       data: {
         doctor,
         services: [doctorServiceOnline, doctorServiceOffline]
@@ -200,6 +199,7 @@ router.post('/', upload.single('avatar'), async (req, res) => {
     });
   }
 });
+
 // Read all doctors
 router.get('/', async (req, res) => {
   try {
@@ -530,7 +530,7 @@ router.post("/reset-password", verifyToken, async (req, res) => {
     }
 
     // ================= FIND USER =================
-    const user = await User.findByPk(userId);
+    const user = await Doctor.findByPk(userId);
 
     if (!user || !user.password) {
       return res.status(404).json({
