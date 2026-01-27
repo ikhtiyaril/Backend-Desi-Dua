@@ -1,7 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const { Op } = require('sequelize'); // <<-- untuk query IN / OR
-const { Doctor, Booking, DoctorSchedule, Service, BlockedTime, ServiceDoctor, sequelize } = require('../models');
+const { Doctor, Booking, DoctorSchedule, Service, BlockedTime, ServiceDoctor, sequelize,Patient } = require('../models');
 const sendEmail = require('../utils/sendmail');
 const jwt = require('jsonwebtoken');
 const verifyToken = require("../middleware/verifyToken");
