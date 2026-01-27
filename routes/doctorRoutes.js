@@ -228,34 +228,8 @@ router.get("/me", verifyToken, async (req, res) => {
     console.log("Doctor ID:", id);
 
     const doctor = await Doctor.findByPk(id, {
-  attributes: {
-    exclude: ['password']
-  },
-  include: [
-    {
-      model: Booking,
-      attributes: [
-        'id',
-        'booking_code',
-        'status',
-        'date',
-        'time',
-        'created_at'
-      ],
-    },
-    {
-      model: Service,
-      through: { attributes: [] } // pivot table disembunyikan
-    },
-    {
-      model: DoctorSchedule
-    },
-    {
-      model: BlockedTime
-    }
-  ]
-});
-
+      include: [{ model: Booking }],
+    });
 
     console.log("Doctor result:", doctor);
 
