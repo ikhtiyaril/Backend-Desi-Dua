@@ -3,6 +3,7 @@ const express = require("express");
 const router = express.Router();
 const { BlockedTime, Doctor, Service, Booking } = require("../models");
 const authMiddleware = require("../middleware/auth"); // middleware cek token
+const { Op } = require("sequelize");
 
 
 router.get("/", authMiddleware, async (req, res) => {
@@ -103,50 +104,67 @@ router.post("/", authMiddleware, async (req, res) => {
   console.log("\n=== DEBUG CREATE BLOCKED TIME REQUEST ===");
 
   try {
-    console.log("Raw Body:", req.body);
+    const { doctor_id, date, time_start, time_end } = req.body;
 
-    const { doctor_id, date, time_start, time_end, } = req.body;
-
-    console.log("Parsed Fields:");
-    console.log("doctor_id:", doctor_id);
-    console.log("date:", date);
-    console.log("time_start:", time_start);
-    console.log("time_end:", time_end);
-
-    // Validasi
-    if (!date || !time_start || !time_end ) {
-      console.log("❌ Validation failed: missing field");
-      return res.status(400).json({ message: "Field wajib diisi" });
+    // ================= VALIDATION =================
+    if (!doctor_id || !date || !time_start || !time_end) {
+      return res.status(400).json({
+        success: false,
+        message: "Field wajib diisi"
+      });
     }
 
-    console.log("Creating BlockedTime...");
+    if (time_start >= time_end) {
+      return res.status(400).json({
+        success: false,
+        message: "Jam mulai harus lebih kecil dari jam selesai"
+      });
+    }
 
+    // ================= CHECK OVERLAP =================
+    const conflict = await BlockedTime.findOne({
+      where: {
+        doctor_id,
+        date,
+        [Op.and]: [
+          { time_start: { [Op.lt]: time_end } },
+          { time_end: { [Op.gt]: time_start } }
+        ]
+      }
+    });
+
+    if (conflict) {
+      return res.status(409).json({
+        success: false,
+        message: "Blocked time bentrok dengan jadwal lain",
+        conflict
+      });
+    }
+
+    // ================= CREATE =================
     const blockedTime = await BlockedTime.create({
       doctor_id,
       date,
       time_start,
-      time_end,
+      time_end
     });
 
-    console.log("✅ BlockedTime berhasil dibuat:");
-    console.dir(blockedTime.toJSON(), { depth: null });
-
-    res.status(201).json({
-      message: "Blocked time dibuat",
-      blockedTime,
+    return res.status(201).json({
+      success: true,
+      message: "Blocked time berhasil dibuat",
+      blockedTime
     });
 
   } catch (err) {
-    console.log("\n❌ ERROR IN CREATE BLOCKED TIME ===");
-    console.log("Message:", err.message);
-    console.log("Stack:", err.stack);
-
-    res.status(500).json({
+    console.error("❌ ERROR CREATE BLOCKED TIME:", err);
+    return res.status(500).json({
+      success: false,
       message: "Gagal buat blocked time",
-      error: err.message,
+      error: err.message
     });
   }
 });
+
 
 router.post("/doctor", authMiddleware, async (req, res) => {
   console.log("\n=== DEBUG CREATE BLOCKED TIME REQUEST ===");

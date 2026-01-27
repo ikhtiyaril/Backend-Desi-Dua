@@ -11,7 +11,7 @@ const {
 
 const verifyToken = require("../middleware/verifyToken");
 const upload = require("../middleware/cbUploads");
-const BASE_URL = process.env.BACKEND_URL
+const BASE_URL = process.env.BACKEND_URL;
 // helper: build image url
 const buildImageUrl = (req, file) => {
   if (!file) return null;
@@ -23,6 +23,17 @@ const requireDoctor = (req, res, next) => {
     return res.status(403).json({ message: "Doctor only access" });
   }
   next();
+};
+
+// helper to parse boolean-like values from req.body (handles "true"/"false" strings)
+const parseBoolean = (value) => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const v = value.trim().toLowerCase();
+    if (v === "true") return true;
+    if (v === "false") return false;
+  }
+  return undefined;
 };
 
 //
@@ -40,12 +51,17 @@ router.post('/', upload.single('image'), async (req, res) => {
       allow_walkin,
       is_live,
       doctorIds,
-      article_id
+      article_id,
+      active: activeRaw
     } = req.body;
 
     const image_url = buildImageUrl(req, req.file);
 
-    const service = await Service.create({
+    // parse active if provided
+    const activeVal = parseBoolean(activeRaw);
+
+    // Build payload so we DON'T overwrite model default if active not provided
+    const createPayload = {
       name,
       description,
       duration_minutes,
@@ -55,7 +71,13 @@ router.post('/', upload.single('image'), async (req, res) => {
       is_live,
       article_id: article_id || null,
       image_url
-    });
+    };
+
+    if (typeof activeVal !== "undefined") {
+      createPayload.active = activeVal;
+    }
+
+    const service = await Service.create(createPayload);
 
     if (doctorIds) {
       const parsed = Array.isArray(doctorIds)
@@ -96,28 +118,31 @@ router.get('/', async (req, res) => {
     });
 
     const formatted = services.map(s => ({
-  id: s.id,
-  name: s.name,
-  description: s.description,
-  duration_minutes: s.duration_minutes,
-  price: s.price,
-  require_doctor: s.require_doctor,
-  allow_walkin: s.allow_walkin,
-  is_live: s.is_live,
-  image_url: s.image_url,
+      id: s.id,
+      name: s.name,
+      description: s.description,
+      duration_minutes: s.duration_minutes,
+      price: s.price,
+      require_doctor: s.require_doctor,
+      allow_walkin: s.allow_walkin,
+      is_live: s.is_live,
+      image_url: s.image_url,
 
-  // ✅ INI YANG HILANG
-  is_doctor_service: s.is_doctor_service,
-  exclusive_doctor_id: s.exclusive_doctor_id,
+      // ✅ tambahkan active di response
+      active: s.active,
 
-  article: s.article ? {
-    id: s.article.id,
-    title: s.article.title,
-    slug: s.article.slug
-  } : null,
+      // ✅ INI YANG HILANG
+      is_doctor_service: s.is_doctor_service,
+      exclusive_doctor_id: s.exclusive_doctor_id,
 
-  doctorIds: s.Doctors?.map(d => d.id) || []
-}));
+      article: s.article ? {
+        id: s.article.id,
+        title: s.article.title,
+        slug: s.article.slug
+      } : null,
+
+      doctorIds: s.Doctors?.map(d => d.id) || []
+    }));
 
     res.json(formatted);
   } catch (err) {
@@ -173,14 +198,17 @@ router.put('/:id', upload.single('image'), async (req, res) => {
       allow_walkin,
       is_live,
       doctorIds,
-      article_id
+      article_id,
+      active: activeRaw
     } = req.body;
 
     const image_url = req.file
       ? buildImageUrl(req, req.file)
       : service.image_url;
 
-    await service.update({
+    const activeVal = parseBoolean(activeRaw);
+
+    const updatePayload = {
       name,
       description,
       duration_minutes,
@@ -190,7 +218,14 @@ router.put('/:id', upload.single('image'), async (req, res) => {
       is_live,
       article_id: article_id || null,
       image_url
-    });
+    };
+
+    // Only set active when provided in request
+    if (typeof activeVal !== "undefined") {
+      updatePayload.active = activeVal;
+    }
+
+    await service.update(updatePayload);
 
     if (doctorIds) {
       const parsed = Array.isArray(doctorIds)
@@ -275,8 +310,6 @@ router.get('/doctors/exclusive-services', async (req, res) => {
   }
 });
 
-
-
 router.get(
   "/doctor/services/exclusive",
   verifyToken,
@@ -306,8 +339,6 @@ router.get(
   }
 );
 
-
-
 router.put(
   "/doctor/services/:id",
   verifyToken,
@@ -325,6 +356,7 @@ router.put(
         allow_walkin,
         is_live,
         image_url,
+        active: activeRaw
       } = req.body;
 
       // 1️⃣ Cari service
@@ -351,15 +383,22 @@ router.put(
       }
 
       // 4️⃣ Update field yang diizinkan
-      await service.update({
+      const activeVal = parseBoolean(activeRaw);
+      const payload = {
         name,
         description,
         duration_minutes,
         price,
         allow_walkin,
         is_live,
-        image_url,
-      });
+        image_url
+      };
+
+      if (typeof activeVal !== "undefined") {
+        payload.active = activeVal;
+      }
+
+      await service.update(payload);
 
       res.json({
         success: true,
@@ -402,13 +441,20 @@ router.put('/doctor/services/:id', verifyToken, async (req, res) => {
       'description',
       'price',
       'duration_minutes',
-      'is_live'
+      'is_live',
+      'active' // tambahkan active agar dokter bisa non-aktifkan jika perlu
     ];
 
     const payload = {};
     for (const key of allowedFields) {
       if (req.body[key] !== undefined) {
-        payload[key] = req.body[key];
+        // special handling for booleans that may be strings
+        if (key === 'active') {
+          const parsed = parseBoolean(req.body[key]);
+          if (typeof parsed !== 'undefined') payload[key] = parsed;
+        } else {
+          payload[key] = req.body[key];
+        }
       }
     }
 

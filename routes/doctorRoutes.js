@@ -125,7 +125,7 @@ router.post('/', upload.single('avatar'), async (req, res) => {
     // =========================
     // 2️⃣ Default Schedule (Senin-Jumat contoh)
     // =========================
-    const defaultSchedules = [1, 2, 3, 4, 5].map(day => ({
+    const defaultSchedules = [1, 2, 3, 4, 5,6,7].map(day => ({
       doctor_id: doctor.id,
       day_of_week: day,
       start_time: '08:00:00',
@@ -509,20 +509,67 @@ router.post('/verify', async (req, res) => {
 });
 
 // Reset Password
-router.post('/reset-password', async (req, res) => {
+router.post("/reset-password", verifyToken, async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const doctor = await Doctor.findOne({ where: { email } });
-    if (!doctor) return res.status(400).json({ message: 'Email tidak ditemukan' });
+    const userId = req.user.id;
+    const { old_password, new_password } = req.body;
 
+    // ================= VALIDATION =================
+    if (!old_password || !new_password) {
+      return res.status(400).json({
+        success: false,
+        message: "Password lama dan password baru wajib diisi",
+      });
+    }
+
+    if (new_password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password baru minimal 6 karakter",
+      });
+    }
+
+    // ================= FIND USER =================
+    const user = await User.findByPk(userId);
+
+    if (!user || !user.password) {
+      return res.status(404).json({
+        success: false,
+        message: "User tidak ditemukan atau belum memiliki password",
+      });
+    }
+
+    // ================= VERIFY OLD PASSWORD =================
+    const isMatch = await bcrypt.compare(old_password, user.password);
+
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: "Password lama tidak sesuai",
+      });
+    }
+
+    // ================= HASH NEW PASSWORD =================
     const salt = await bcrypt.genSalt(10);
-    const hash = await bcrypt.hash(password, salt);
+    const hashedPassword = await bcrypt.hash(new_password, salt);
 
-    await Doctor.update({ password: hash }, { where: { email } });
-    res.json({ success: true, message: 'Password berhasil diperbarui' });
+    // ================= UPDATE PASSWORD =================
+    await user.update({
+      password: hashedPassword,
+    });
+
+    return res.json({
+      success: true,
+      message: "Password berhasil diperbarui",
+    });
+
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Gagal memperbarui password', error: err.message });
+    console.error("ERROR CHANGE PASSWORD:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Gagal memperbarui password",
+      error: err.message,
+    });
   }
 });
 

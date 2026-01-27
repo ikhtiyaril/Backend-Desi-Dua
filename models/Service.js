@@ -57,7 +57,12 @@ module.exports = (sequelize, DataTypes) => {
    image_url :{
  type: DataTypes.STRING
 //buat tes aja
+ },
+ active : {
+  type: DataTypes.BOOLEAN,
+  defaultValue: true
  }
+
   }, {
     tableName: 'services',
     underscored: true,
