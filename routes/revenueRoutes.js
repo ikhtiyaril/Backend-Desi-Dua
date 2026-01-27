@@ -330,7 +330,7 @@ router.put(
         }
 
         withdraw.status = "paid";
-        withdraw.proof_image = req.file.filename;
+        withdraw.proof_image = `${process.env.BACKEND_URL}/uploads/${req.file.filename}`;
         withdraw.processed_at = new Date();
         console.log("Proof image saved:", req.file.filename);
       }
