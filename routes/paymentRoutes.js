@@ -179,7 +179,7 @@ router.post("/checkout", verifyToken, async (req, res) => {
     console.log("[REQ BODY]", req.body);
     console.log("[REQ USER]", req.user);
 
-    const { amount, paymentMethod, orderItems = [], reference, id } = req.body;
+    const { amount, paymentMethod, orderItems = [], reference, id,shipping_cost,fee_customer } = req.body;
     const { name, email, phone, id: userId } = req.user.data.dataValues;
 
     // ===============================
@@ -240,7 +240,7 @@ router.post("/checkout", verifyToken, async (req, res) => {
     // ===============================
     // AMOUNT
     // ===============================
-    const tripayAmount = Math.floor(Number(amount));
+    const tripayAmount = Math.floor(Number(amount+shipping_cost+fee_customer));
     console.log("[AMOUNT NORMALIZED]", tripayAmount);
 
     if (!tripayAmount || tripayAmount <= 0) {
