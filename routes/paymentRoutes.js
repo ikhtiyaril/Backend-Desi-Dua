@@ -281,13 +281,7 @@ if (shipping_cost > 0) {
 }
 
 // ➕ FEE CUSTOMER
-if (fee_customer > 0) {
-  fixedOrderItems.push({
-    name: "Biaya Layanan",
-    quantity: 1,
-    price: Math.floor(Number(fee_customer))
-  });
-}
+
 
 
 
