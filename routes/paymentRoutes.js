@@ -240,7 +240,7 @@ router.post("/checkout", verifyToken, async (req, res) => {
     // ===============================
     // AMOUNT
     // ===============================
-    const tripayAmount = Math.floor(Number(amount+shipping_cost+fee_customer));
+    const tripayAmount = Math.floor(Number(amount+shipping_cost));
     console.log("[AMOUNT NORMALIZED]", tripayAmount);
 
     if (!tripayAmount || tripayAmount <= 0) {
@@ -265,15 +265,31 @@ router.post("/checkout", verifyToken, async (req, res) => {
     // ===============================
     // ORDER ITEMS
     // ===============================
-    const fixedOrderItems = orderItems.map((item, i) => {
-      const fixed = {
-        name: item.name,
-        quantity: item.quantity,
-        price: Math.floor(Number(item.price))
-      };
-      console.log(`[ITEM ${i + 1}]`, fixed);
-      return fixed;
-    });
+    const fixedOrderItems = orderItems.map((item) => ({
+  name: item.name,
+  quantity: item.quantity,
+  price: Math.floor(Number(item.price))
+}));
+
+// ➕ ONGKIR
+if (shipping_cost > 0) {
+  fixedOrderItems.push({
+    name: "Biaya Pengiriman",
+    quantity: 1,
+    price: Math.floor(Number(shipping_cost))
+  });
+}
+
+// ➕ FEE CUSTOMER
+if (fee_customer > 0) {
+  fixedOrderItems.push({
+    name: "Biaya Layanan",
+    quantity: 1,
+    price: Math.floor(Number(fee_customer))
+  });
+}
+
+
 
     // ===============================
     // PAYLOAD
