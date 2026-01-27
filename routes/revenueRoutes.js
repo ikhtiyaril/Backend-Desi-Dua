@@ -148,33 +148,63 @@ router.post("/doctor/withdraw", verifyToken, async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
+    console.log("===== START WITHDRAW REQUEST =====");
+    console.log("Request body:", req.body);
+    console.log("Authenticated user:", req.user);
+
     const { amount, bank_name, bank_account, account_name } = req.body;
     const userId = req.user.id;
 
     if (req.user.role !== "doctor") {
+      console.log("❌ User is not a doctor:", req.user.role);
       await transaction.rollback();
       return res.status(403).json({ message: "Doctor only" });
     }
 
     const withdrawAmount = Number(amount);
     if (!withdrawAmount || withdrawAmount <= 0) {
+      console.log("❌ Invalid withdraw amount:", withdrawAmount);
       await transaction.rollback();
       return res.status(400).json({ message: "Invalid withdraw amount" });
     }
 
+    console.log("Looking up wallet for doctor_id:", userId);
     const wallet = await WalletDoctor.findOne({
       where: { doctor_id: userId },
       transaction,
       lock: transaction.LOCK.UPDATE,
     });
 
-    if (!wallet || Number(wallet.balance) < withdrawAmount) {
+    if (!wallet) {
+      console.log("❌ Wallet not found for doctor_id:", userId);
+      await transaction.rollback();
+      return res.status(400).json({ message: "Wallet not found" });
+    }
+
+    console.log("Current wallet balance:", wallet.balance);
+
+    if (Number(wallet.balance) < withdrawAmount) {
+      console.log("❌ Insufficient balance. Requested:", withdrawAmount, "Available:", wallet.balance);
       await transaction.rollback();
       return res.status(400).json({ message: "Insufficient balance" });
     }
 
+    // Update wallet
     wallet.balance = Number(wallet.balance) - withdrawAmount;
+    console.log("Updated wallet balance (not yet saved):", wallet.balance);
     await wallet.save({ transaction });
+    console.log("✅ Wallet updated successfully");
+
+    // Debug before creating withdraw request
+    console.log("Creating withdraw request with data:", {
+      doctor_id: userId,
+      amount: withdrawAmount,
+      bank_name,
+      bank_account,
+      account_name,
+      status: "pending",
+      requested_at: new Date(),
+    });
 
     const withdraw = await WithdrawRequest.create(
       {
@@ -189,7 +219,10 @@ router.post("/doctor/withdraw", verifyToken, async (req, res) => {
       { transaction }
     );
 
+    console.log("✅ Withdraw request created:", withdraw.toJSON());
+
     await transaction.commit();
+    console.log("===== WITHDRAW REQUEST COMMITTED =====");
 
     return res.json({
       message: "Withdraw request sent",
@@ -199,6 +232,7 @@ router.post("/doctor/withdraw", verifyToken, async (req, res) => {
   } catch (error) {
     await transaction.rollback();
     console.error("❌ WITHDRAW ERROR:", error);
+    console.log("===== TRANSACTION ROLLED BACK =====");
     return res.status(500).json({
       message: "Failed to request withdraw",
       error: error.message,
@@ -218,35 +252,46 @@ router.put(
     const transaction = await sequelize.transaction();
 
     try {
+      console.log("===== START ADMIN WITHDRAW PROCESS =====");
+      console.log("Params:", req.params);
+      console.log("Body:", req.body);
+      console.log("Authenticated user:", req.user);
+      console.log("Uploaded file:", req.file);
+
       const { id } = req.params;
       const { status } = req.body;
 
+      // Check admin role
       if (req.user?.role !== "admin") {
+        console.log("❌ User is not admin:", req.user?.role);
         await transaction.rollback();
         return res.status(403).json({ message: "Admin only" });
       }
 
+      // Fetch withdraw request
+      console.log("Fetching withdraw request with ID:", id);
       const withdraw = await WithdrawRequest.findByPk(id, {
         transaction,
         lock: transaction.LOCK.UPDATE,
       });
 
       if (!withdraw) {
+        console.log("❌ Withdraw request not found:", id);
         await transaction.rollback();
-        return res.status(404).json({
-          message: "Withdraw request not found",
-        });
+        return res.status(404).json({ message: "Withdraw request not found" });
       }
+
+      console.log("Current withdraw status:", withdraw.status);
 
       if (withdraw.status === "paid") {
+        console.log("❌ Withdraw already paid");
         await transaction.rollback();
-        return res.status(400).json({
-          message: "Withdraw already completed",
-        });
+        return res.status(400).json({ message: "Withdraw already completed" });
       }
 
-      // REJECT -> kembalikan saldo ke WalletDoctor
+      // REJECT -> kembalikan saldo ke wallet
       if (status === "rejected") {
+        console.log("Processing REJECT action");
         const wallet = await WalletDoctor.findOne({
           where: { doctor_id: withdraw.doctor_id },
           transaction,
@@ -254,41 +299,47 @@ router.put(
         });
 
         if (!wallet) {
+          console.log("❌ Wallet not found for doctor_id:", withdraw.doctor_id);
           await transaction.rollback();
-          return res.status(404).json({
-            message: "Doctor wallet not found",
-          });
+          return res.status(404).json({ message: "Doctor wallet not found" });
         }
 
+        console.log("Wallet balance before refund:", wallet.balance);
         wallet.balance = Number(wallet.balance) + Number(withdraw.amount);
         await wallet.save({ transaction });
+        console.log("Wallet balance after refund:", wallet.balance);
 
         withdraw.status = "rejected";
         withdraw.processed_at = new Date();
       }
 
-      // APPROVE (hanya ubah status jadi approved)
+      // APPROVE -> hanya ubah status
       if (status === "approved") {
+        console.log("Processing APPROVE action");
         withdraw.status = "approved";
         withdraw.processed_at = new Date();
       }
 
-      // PAID (harus upload proof image)
+      // PAID -> harus ada proof image
       if (status === "paid") {
+        console.log("Processing PAID action");
         if (!req.file) {
+          console.log("❌ Proof image missing");
           await transaction.rollback();
-          return res.status(400).json({
-            message: "Proof image required",
-          });
+          return res.status(400).json({ message: "Proof image required" });
         }
 
         withdraw.status = "paid";
         withdraw.proof_image = req.file.filename;
         withdraw.processed_at = new Date();
+        console.log("Proof image saved:", req.file.filename);
       }
 
+      // Save withdraw request
+      console.log("Saving withdraw request with status:", withdraw.status);
       await withdraw.save({ transaction });
       await transaction.commit();
+      console.log("===== ADMIN WITHDRAW COMMITTED SUCCESSFULLY =====");
 
       return res.json({
         message: "Withdraw processed successfully",
@@ -296,7 +347,8 @@ router.put(
       });
     } catch (error) {
       await transaction.rollback();
-      console.error("ADMIN WITHDRAW ERROR:", error);
+      console.error("❌ ADMIN WITHDRAW ERROR:", error);
+      console.log("===== TRANSACTION ROLLED BACK =====");
       return res.status(500).json({
         message: "Failed to process withdraw",
         error: error.message,
@@ -304,7 +356,7 @@ router.put(
     }
   }
 );
-
+ 
 /**
  * GET /admin/withdraw
  * Admin melihat semua request withdraw (optional: filter by status)
