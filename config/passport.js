@@ -7,7 +7,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT,
       clientSecret: process.env.GOOGLE_SECRET,
-      callbackURL: "http://localhost:5000/api/auth/google/callback",
+      callbackURL: "https://backend.desidua.cloud/api/auth/google/callback",
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
