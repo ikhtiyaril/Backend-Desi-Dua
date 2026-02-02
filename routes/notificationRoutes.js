@@ -40,7 +40,7 @@ router.get("/", verifyToken, async (req, res) => {
   try {
     console.log("[GET NOTIFICATIONS] User:", req.user);
     const where =
-      req.user.role === "patient"
+      req.user.role === "patient" || "admin"
         ? { user_id: req.user.id }
         : { doctor_id: req.user.id };
 
