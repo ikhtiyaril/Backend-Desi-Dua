@@ -19,7 +19,7 @@ router.get(
     });
 
     // Redirect ke FE bawa token
-    res.redirect(`${process.env.DOMAIN_FE_CLIENT}login?token=${token}`);
+    res.redirect(`${process.env.DOMAIN_FE_CLIENT}/login?token=${token}`);
   }
 );
 
