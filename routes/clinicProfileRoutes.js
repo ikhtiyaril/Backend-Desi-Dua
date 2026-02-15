@@ -8,10 +8,13 @@ const { ClinicProfile } = require("../models");
  */
 router.get("/", async (req, res) => {
   try {
+    console.log("=== GET /clinic-profile ===");
+
     let profile = await ClinicProfile.findByPk(1);
 
-    // Auto create kalau belum ada
     if (!profile) {
+      console.log("Profile not found. Creating default profile...");
+
       profile = await ClinicProfile.create({
         id: 1,
         bannerCards: [],
@@ -20,14 +23,24 @@ router.get("/", async (req, res) => {
         operationalHours: {},
         shortDescription: "",
         longDescription: "",
+        backstory: "",
       });
+
+      console.log("Default profile created.");
     }
 
+    console.log("Profile fetched successfully.");
     res.json(profile);
+
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("GET clinic-profile error:", error);
+    res.status(500).json({
+      message: error.message,
+      stack: error.stack,
+    });
   }
 });
+
 
 /**
  * UPDATE GLOBAL CLINIC PROFILE (ID = 1)
@@ -40,20 +53,60 @@ router.put(
   ]),
   async (req, res) => {
     try {
+      console.log("=== PUT /clinic-profile ===");
+      console.log("Body Received:", req.body);
+      console.log("Files Received:", req.files);
+
       const profile = await ClinicProfile.findByPk(1);
+
       if (!profile) {
+        console.log("Profile not found.");
         return res.status(404).json({ message: "Clinic profile not found" });
       }
 
       const baseUrl = `${req.protocol}://${req.get("host")}`;
+      console.log("Base URL:", baseUrl);
 
-      // ===== Parse JSON Fields =====
-      const bannerCards = JSON.parse(req.body.bannerCards || "[]");
-      const serviceCards = JSON.parse(req.body.serviceCards || "[]");
+      // ===== SAFE JSON PARSE =====
+      let bannerCards = [];
+      let serviceCards = [];
+      let contact = {};
+      let operationalHours = {};
 
-      // ===== Inject Banner Images =====
+      try {
+        bannerCards = req.body.bannerCards
+          ? JSON.parse(req.body.bannerCards)
+          : [];
+
+        serviceCards = req.body.serviceCards
+          ? JSON.parse(req.body.serviceCards)
+          : [];
+
+        contact =
+          typeof req.body.contact === "string"
+            ? JSON.parse(req.body.contact)
+            : req.body.contact || {};
+
+        operationalHours =
+          typeof req.body.operationalHours === "string"
+            ? JSON.parse(req.body.operationalHours)
+            : req.body.operationalHours || {};
+
+      } catch (parseError) {
+        console.error("JSON Parse Error:", parseError);
+        return res.status(400).json({
+          message: "Invalid JSON format in request body",
+        });
+      }
+
+      console.log("Parsed Banner Cards:", bannerCards);
+      console.log("Parsed Service Cards:", serviceCards);
+
+      // ===== INJECT BANNER IMAGES =====
       if (req.files?.bannerImages) {
         req.files.bannerImages.forEach((file, index) => {
+          console.log("Injecting banner image:", file.filename);
+
           if (bannerCards[index]) {
             bannerCards[index].image =
               `${baseUrl}/uploads/${file.filename}`;
@@ -61,9 +114,11 @@ router.put(
         });
       }
 
-      // ===== Inject Service Images =====
+      // ===== INJECT SERVICE IMAGES =====
       if (req.files?.serviceImages) {
         req.files.serviceImages.forEach((file, index) => {
+          console.log("Injecting service image:", file.filename);
+
           if (serviceCards[index]) {
             serviceCards[index].image =
               `${baseUrl}/uploads/${file.filename}`;
@@ -71,24 +126,35 @@ router.put(
         });
       }
 
+      // ===== UPDATE DATABASE =====
       await profile.update({
         bannerCards,
         serviceCards,
         backstory: req.body.backstory || "",
         shortDescription: req.body.shortDescription || "",
         longDescription: req.body.longDescription || "",
-        contact: JSON.parse(req.body.contact || "{}"),
-        operationalHours: JSON.parse(req.body.operationalHours || "{}"),
+        contact,
+        operationalHours,
       });
+
+      await profile.reload();
+
+      console.log("Clinic profile updated successfully.");
 
       res.json({
         message: "Clinic profile updated",
         data: profile,
       });
+
     } catch (error) {
-      res.status(500).json({ message: error.message });
+      console.error("PUT clinic-profile error:", error);
+      res.status(500).json({
+        message: error.message,
+        stack: error.stack,
+      });
     }
   }
 );
+
 
 module.exports = router;
