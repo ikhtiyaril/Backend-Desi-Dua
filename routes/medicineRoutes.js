@@ -117,15 +117,37 @@ router.put("/admin/products/:id", verifyToken, isAdmin, upload.single("image"), 
 
 router.delete("/admin/products/:id", verifyToken, isAdmin, async (req, res) => {
   try {
+    console.log("DELETE REQUEST ID:", req.params.id);
+    console.log("User:", req.user); // kalau verifyToken attach user
+
     const product = await Medicine.findByPk(req.params.id);
 
-    if (!product)
-      return res.status(404).json({ success: false, message: "Produk tidak ditemukan." });
+    if (!product) {
+      console.log("Product not found");
+      return res.status(404).json({
+        success: false,
+        message: "Produk tidak ditemukan."
+      });
+    }
+
+    console.log("Product found:", product.id);
 
     await product.destroy();
-    res.json({ success: true, message: "Produk berhasil dihapus." });
+
+    console.log("Product deleted successfully");
+
+    return res.status(200).json({
+      success: true,
+      message: "Produk berhasil dihapus."
+    });
+
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    console.error("DELETE ERROR:", err);
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+      stack: err.stack
+    });
   }
 });
 
