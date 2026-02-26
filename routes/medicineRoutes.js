@@ -115,7 +115,7 @@ router.put("/admin/products/:id", verifyToken, isAdmin, upload.single("image"), 
   }
 });
 
-router.delete("/admin/products/:id", verifyToken, isAdmin, async (req, res) => {
+router.delete("/admin/products/:id", verifyToken, async (req, res) => {
   try {
     console.log("DELETE REQUEST ID:", req.params.id);
     console.log("User:", req.user); // kalau verifyToken attach user
