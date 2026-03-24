@@ -29,9 +29,14 @@ module.exports = (sequelize, DataTypes) => {
 
       // 💳 Status pembayaran (Tripay)
       payment_status: {
-        type: DataTypes.ENUM("UNPAID", "PAID", "EXPIRED", "FAILED", "REFUND"),
+        type: DataTypes.ENUM(
+'PENDING',
+'PAID',
+'EXPIRED',
+'FAILED'
+),
         allowNull: false,
-        defaultValue: "UNPAID",
+        defaultValue: "PENDING",
       },
 
       payment_method: {

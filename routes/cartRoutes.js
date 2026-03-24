@@ -20,7 +20,6 @@ router.get("/", verifyToken, async (req, res) => {
         },
       ],
     });
-
     // kalau cart belum ada → auto create
     if (!cart) {
       cart = await Cart.create({ user_id: req.user.id });

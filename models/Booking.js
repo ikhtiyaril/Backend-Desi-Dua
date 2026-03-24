@@ -39,10 +39,12 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true
     },
     payment_status: {
-      type: DataTypes.ENUM('unpaid', 'paid'),
-      allowNull: false,
-      defaultValue: 'unpaid'
-    },
+        type: DataTypes.ENUM(
+'PENDING',
+'PAID',
+'EXPIRED',
+'FAILED'
+),},
     payment_method: {
       type: DataTypes.STRING,
       allowNull: true

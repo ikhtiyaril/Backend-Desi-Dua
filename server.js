@@ -80,7 +80,9 @@ app.use('/api/clinic-profile',require('./routes/clinicProfileRoutes'))
 app.use("/api/shipping", require('./routes/shippingRegionalRoutes'));
 app.use("/api/revenue", require('./routes/revenueRoutes'));
 app.use("/api/notification", require('./routes/notificationRoutes'));
-app.use('/api/payment',require('./routes/paymentRoutes'))
+app.use('/api/payment',require('./routes/paymentRoutes'));
+app.use('/api/paymentXendit',require('./routes/paymentXenditRoutes'))
+
 
 
 
@@ -95,7 +97,7 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 
 
-db.sequelize.sync()
+db.sequelize.sync({alter:true})
 .then(() => console.log('Database synced!'))
 .catch(err => console.error('Failed to sync database:', err));
 

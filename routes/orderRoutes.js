@@ -68,7 +68,7 @@ router.post("/create", verifyToken, async (req, res) => {
         payment_method: payment_method || null,
         order_code: orderCode,
         status: "pending",
-        payment_status: "UNPAID",
+        payment_status: "PENDING",
 
         // ===============================
         // SHIPPING COST (ONLY)

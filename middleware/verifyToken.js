@@ -3,7 +3,6 @@ const { User, Doctor } = require("../models");
 
 module.exports = async function verifyAuthFlexible(req, res, next) {
   const authHeader = req.headers.authorization;
-
   if (!authHeader?.startsWith("Bearer ")) {
     return res.status(401).json({ message: "Token tidak ditemukan" });
   }

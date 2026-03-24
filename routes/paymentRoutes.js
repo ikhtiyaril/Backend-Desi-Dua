@@ -14,11 +14,11 @@ const { Sequelize } = require("sequelize");
 
 
 router.get('/', async (req, res) => {
-  console.log("\n========== [TRIPAY PAYMENT CHANNEL] ==========");
-  console.log("➡️ HIT ENDPOINT : GET /api/payment");
-  console.log("⏰ TIME        :", new Date().toISOString());
-  console.log("🌍 TRIPAY URL  :", process.env.TRIPAY_URL);
-  console.log("🔑 API KEY OK? :", !!process.env.API_KEY_TRIPAY);
+  // console.log("\n========== [TRIPAY PAYMENT CHANNEL] ==========");
+  // console.log("➡️ HIT ENDPOINT : GET /api/payment");
+  // console.log("⏰ TIME        :", new Date().toISOString());
+  // console.log("🌍 TRIPAY URL  :", process.env.TRIPAY_URL);
+  // console.log("🔑 API KEY OK? :", !!process.env.API_KEY_TRIPAY);
 
   try {
     console.log("➡️ REQUESTING TRIPAY...");
@@ -34,9 +34,9 @@ router.get('/', async (req, res) => {
       }
     );
 
-    console.log("✅ TRIPAY RESPONSE RECEIVED");
-    console.log("Status Code :", response.status);
-    console.log("Response Data :", response.data);
+    // console.log("✅ TRIPAY RESPONSE RECEIVED");
+    // console.log("Status Code :", response.status);
+    // console.log("Response Data :", response.data);
 
     return res.status(200).json({
       success: true,

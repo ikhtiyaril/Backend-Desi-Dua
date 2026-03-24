@@ -151,7 +151,7 @@ router.post('/', verifyToken, async (req, res) => {
           // PAYMENT STATUS
           // =========================
           const payment_status =
-            Number(service.price) === 0 ? "paid" : "unpaid";
+            Number(service.price) === 0 ? "PAID" : "PENDING";
 
           console.log(`[${DEBUG_ID}] Payment status resolved: ${payment_status}`);
 
