@@ -579,13 +579,17 @@ const { id: userId, name, email, phone } = user
 
     console.log("\n💾 SAVING PAYMENT SESSION")
 
-    const session = await PaymentSession.create({
-      related_type: 'order',
-      related_id: id,
-      merchant_ref: merchantRef,
-      status: paymentData.status || 'PENDING',
-      session_data: paymentData
-    })
+    
+const invoiceUrl = paymentData.invoice_url
+
+const session = await PaymentSession.create({
+  related_type: 'order',
+  related_id: id,
+  merchant_ref: merchantRef,
+  status: paymentData.status || 'PENDING',
+  url_payment: invoiceUrl,
+  session_data: paymentData
+})
 
     console.log("PAYMENT SESSION SAVED:")
     console.dir(session?.dataValues || session, { depth: null })
@@ -600,6 +604,7 @@ const { id: userId, name, email, phone } = user
     await Order.update(
       {
         payment_status: paymentData.status || 'PENDING',
+        
         payment_method: 'XENDIT_INVOICE'
       },
       { where: { id } }

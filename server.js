@@ -97,7 +97,7 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 
 
-db.sequelize.sync({alter:true})
+db.sequelize.sync()
 .then(() => console.log('Database synced!'))
 .catch(err => console.error('Failed to sync database:', err));
 
