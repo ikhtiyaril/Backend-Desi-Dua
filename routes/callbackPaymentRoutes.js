@@ -121,6 +121,7 @@ router.post("/xendit", async (req, res) => {
     const expectedToken = process.env.XENDIT_CALLBACK_TOKEN;
 
     console.log("Incoming Token:", callbackToken);
+    console.log("Token Kita Nih :", expectedToken)
 
     // =============================
     // VALIDASI TOKEN
