@@ -113,4 +113,95 @@ router.post(
   }
 );
 
+router.post("/xendit", async (req, res) => {
+  try {
+    console.log("➡️ XENDIT CALLBACK HIT");
+
+    const callbackToken = req.headers["x-callback-token"];
+    const expectedToken = process.env.XENDIT_CALLBACK_TOKEN;
+
+    console.log("Incoming Token:", callbackToken);
+
+    // =============================
+    // VALIDASI TOKEN
+    // =============================
+    if (callbackToken !== expectedToken) {
+      console.error("❌ TOKEN TIDAK VALID");
+      return res.status(403).json({ success: false });
+    }
+
+    const payload = req.body;
+
+    console.log("Payload:", payload);
+
+    const reference = payload.external_id; // ini penting
+    const status = payload.status; // PAID, EXPIRED, dll
+
+    console.log("Reference:", reference);
+    console.log("Status:", status);
+
+    // =============================
+    // CARI SESSION
+    // =============================
+    const session = await PaymentSession.findOne({
+      where: {
+        reference: reference, // pastikan lu simpan external_id di DB
+      },
+    });
+
+    if (!session) {
+      console.warn("⚠️ SESSION TIDAK DITEMUKAN");
+      return res.status(200).json({ success: true });
+    }
+
+    // IDEMPOTENT (biar ga double update)
+    if (session.status === "PAID") {
+      console.log("ℹ️ SUDAH PAID");
+      return res.status(200).json({ success: true });
+    }
+
+    // =============================
+    // UPDATE SESSION
+    // =============================
+    await session.update({ status: status });
+    console.log("✅ SESSION UPDATED");
+
+    // =============================
+    // HANDLE STATUS
+    // =============================
+    if (status === "PAID") {
+      if (session.related_type === "order") {
+        await Order.update(
+          {
+            payment_status: "PAID",
+            status: "processing",
+            payment_method: payload.payment_method || "xendit",
+          },
+          { where: { id: session.related_id } }
+        );
+        console.log("✅ ORDER UPDATED");
+      }
+
+      if (session.related_type === "booking") {
+        await Booking.update(
+          {
+            payment_status: "paid",
+            status: "confirmed",
+            payment_method: payload.payment_method || "xendit",
+          },
+          { where: { id: session.related_id } }
+        );
+        console.log("✅ BOOKING UPDATED");
+      }
+    }
+
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    console.error("🔥 XENDIT CALLBACK ERROR:", err);
+    return res.status(200).json({ success: true });
+  }
+});
+
+
+
 module.exports = router;
