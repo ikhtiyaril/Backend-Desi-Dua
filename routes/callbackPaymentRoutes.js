@@ -120,33 +120,16 @@ router.post("/xendit", async (req, res) => {
     console.log("==============================");
 
     // =============================
-    // DEBUG REQUEST
+    // DEBUG BASIC
     // =============================
-    console.log("📦 HEADERS:");
-    console.log(req.headers);
-
-    console.log("\n📦 CONTENT-TYPE:");
-    console.log(req.headers["content-type"]);
-
-    console.log("\n📦 RAW BODY:");
-    console.log(req.rawBody);
-
-    console.log("\n📦 PARSED BODY:");
-    console.log(req.body);
+    console.log("Headers:", req.headers);
+    console.log("Body:", req.body);
 
     // =============================
     // VALIDASI TOKEN
     // =============================
     const callbackToken = req.headers["x-callback-token"];
     const expectedToken = process.env.XENDIT_CALLBACK_TOKEN;
-
-    console.log("\n🔐 TOKEN CHECK:");
-    console.log("Incoming:", callbackToken);
-    console.log("Expected:", expectedToken);
-
-    if (!callbackToken) {
-      console.error("❌ TOKEN TIDAK ADA DI HEADER");
-    }
 
     if (callbackToken !== expectedToken) {
       console.error("❌ TOKEN TIDAK VALID");
@@ -157,111 +140,123 @@ router.post("/xendit", async (req, res) => {
     // VALIDASI BODY
     // =============================
     if (!req.body) {
-      console.error("❌ BODY UNDEFINED");
-      return res.status(400).json({ success: false, message: "Body kosong" });
+      console.error("❌ BODY KOSONG");
+      return res.status(400).json({ success: false });
     }
 
     const payload = req.body;
 
-    console.log("\n📦 PAYLOAD DETAIL:");
-    console.log(JSON.stringify(payload, null, 2));
-
-    if (!payload.external_id) {
-      console.error("❌ external_id TIDAK ADA");
-    }
-
-    if (!payload.status) {
-      console.error("❌ status TIDAK ADA");
-    }
-
     const reference = payload.external_id;
     const status = payload.status;
 
-    console.log("\n📌 EXTRACTED:");
     console.log("Reference:", reference);
     console.log("Status:", status);
 
+    if (!reference || !status) {
+      console.error("❌ DATA TIDAK LENGKAP");
+      return res.status(400).json({ success: false });
+    }
+
     // =============================
-    // CARI SESSION
+    // CARI TARGET (ORDER / BOOKING)
     // =============================
-    console.log("\n🔍 SEARCH SESSION...");
-    const session = await PaymentSession.findOne({
-      where: { reference },
+    let target = null;
+    let type = null;
+
+    // cari ORDER
+    const order = await Order.findOne({
+      where: { order_code: reference },
     });
 
-    if (!session) {
-      console.warn("⚠️ SESSION TIDAK DITEMUKAN DI DB");
+    if (order) {
+      target = order;
+      type = "order";
+    }
+
+    // kalau bukan order, cek booking
+    if (!target) {
+      const booking = await Booking.findOne({
+        where: { booking_code: reference },
+      });
+
+      if (booking) {
+        target = booking;
+        type = "booking";
+      }
+    }
+
+    if (!target) {
+      console.warn("⚠️ ORDER / BOOKING TIDAK DITEMUKAN");
       return res.status(200).json({ success: true });
     }
 
-    console.log("✅ SESSION FOUND:", session.toJSON());
+    console.log(`✅ TARGET FOUND: ${type.toUpperCase()}`, target.toJSON());
 
     // =============================
     // IDEMPOTENT CHECK
     // =============================
-    if (session.status === "PAID") {
-      console.log("ℹ️ SUDAH PAID, SKIP UPDATE");
+    if (
+      (type === "order" && target.payment_status === "PAID") ||
+      (type === "booking" && target.payment_status === "paid")
+    ) {
+      console.log("ℹ️ SUDAH PAID, SKIP");
       return res.status(200).json({ success: true });
     }
-
-    // =============================
-    // UPDATE SESSION
-    // =============================
-    console.log("\n✏️ UPDATE SESSION...");
-    await session.update({ status });
-    console.log("✅ SESSION UPDATED");
 
     // =============================
     // HANDLE STATUS
     // =============================
     if (status === "PAID") {
-      console.log("\n💰 STATUS = PAID, PROCESSING...");
+      console.log("💰 STATUS PAID, UPDATE TARGET");
 
-      if (session.related_type === "order") {
-        console.log("➡️ UPDATE ORDER");
-
-        await Order.update(
-          {
-            payment_status: "PAID",
-            status: "processing",
-            payment_method: payload.payment_method || "xendit",
-          },
-          { where: { id: session.related_id } }
-        );
-
-        console.log("✅ ORDER UPDATED");
+      if (type === "order") {
+        await target.update({
+          payment_status: "PAID",
+          status: "processing",
+          payment_method: payload.payment_method || "xendit",
+        });
       }
 
-      if (session.related_type === "booking") {
-        console.log("➡️ UPDATE BOOKING");
-
-        await Booking.update(
-          {
-            payment_status: "paid",
-            status: "confirmed",
-            payment_method: payload.payment_method || "xendit",
-          },
-          { where: { id: session.related_id } }
-        );
-
-        console.log("✅ BOOKING UPDATED");
+      if (type === "booking") {
+        await target.update({
+          payment_status: "paid",
+          status: "confirmed",
+          payment_method: payload.payment_method || "xendit",
+        });
       }
+
+      console.log("✅ TARGET UPDATED");
     } else {
-      console.log(`ℹ️ STATUS BUKAN PAID (${status}), SKIP BUSINESS LOGIC`);
+      console.log(`ℹ️ STATUS ${status}, TIDAK DIPROSES`);
     }
 
-    console.log("\n✅ CALLBACK DONE\n");
+    // =============================
+    // UPDATE PAYMENT SESSION
+    // =============================
+    await PaymentSession.update(
+      { status: status },
+      {
+        where: {
+          related_type: type,
+          related_id: target.id,
+        },
+      }
+    );
+
+    console.log("✅ PAYMENT SESSION UPDATED");
+
+    console.log("✅ CALLBACK DONE\n");
+
     return res.status(200).json({ success: true });
 
   } catch (err) {
-    console.error("\n🔥 XENDIT CALLBACK ERROR FULL:");
+    console.error("🔥 ERROR CALLBACK:");
     console.error(err);
-    console.error("STACK:", err.stack);
+    console.error(err.stack);
 
     return res.status(200).json({ success: true });
   }
 });
-
 
 
 module.exports = router;
