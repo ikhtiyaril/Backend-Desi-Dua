@@ -263,7 +263,7 @@ router.post('/', verifyToken, async (req, res) => {
     console.log("\n💾 SAVING PAYMENT SESSION...");
 
     const session = await PaymentSession.create({
-      related_type: 'order',
+      related_type: 'booking',
       related_id: id,
       merchant_ref: externalId,
       status: xenditRes.data.status || 'PENDING',

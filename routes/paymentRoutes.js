@@ -388,7 +388,7 @@ router.get("/session", verifyToken, async (req, res) => {
       where: {
         related_type,
         related_id: id,
-        status: "UNPAID",
+        status: "PENDING",
       },
     });
 
