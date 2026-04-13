@@ -12,6 +12,9 @@ const { sendPush } = require("./utils/push");
 const cron = require("node-cron");
 require("./cron/bookingReminders");
 
+app.use(express.json());
+
+
 app.use('/api/callback',require('./routes/callbackPaymentRoutes'))
 
 
@@ -60,7 +63,6 @@ app.use(cors({
 
 
 
-app.use(express.json());
 
 
 

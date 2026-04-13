@@ -115,63 +115,111 @@ router.post(
 
 router.post("/xendit", async (req, res) => {
   try {
+    console.log("\n==============================");
     console.log("➡️ XENDIT CALLBACK HIT");
+    console.log("==============================");
 
-    const callbackToken = req.headers["x-callback-token"];
-    const expectedToken = process.env.XENDIT_CALLBACK_TOKEN;
+    // =============================
+    // DEBUG REQUEST
+    // =============================
+    console.log("📦 HEADERS:");
+    console.log(req.headers);
 
-    console.log("Incoming Token:", callbackToken);
-    console.log("Token Kita Nih :", expectedToken)
+    console.log("\n📦 CONTENT-TYPE:");
+    console.log(req.headers["content-type"]);
+
+    console.log("\n📦 RAW BODY:");
+    console.log(req.rawBody);
+
+    console.log("\n📦 PARSED BODY:");
+    console.log(req.body);
 
     // =============================
     // VALIDASI TOKEN
     // =============================
+    const callbackToken = req.headers["x-callback-token"];
+    const expectedToken = process.env.XENDIT_CALLBACK_TOKEN;
+
+    console.log("\n🔐 TOKEN CHECK:");
+    console.log("Incoming:", callbackToken);
+    console.log("Expected:", expectedToken);
+
+    if (!callbackToken) {
+      console.error("❌ TOKEN TIDAK ADA DI HEADER");
+    }
+
     if (callbackToken !== expectedToken) {
       console.error("❌ TOKEN TIDAK VALID");
       return res.status(403).json({ success: false });
     }
 
+    // =============================
+    // VALIDASI BODY
+    // =============================
+    if (!req.body) {
+      console.error("❌ BODY UNDEFINED");
+      return res.status(400).json({ success: false, message: "Body kosong" });
+    }
+
     const payload = req.body;
 
-    console.log("Payload:", payload);
+    console.log("\n📦 PAYLOAD DETAIL:");
+    console.log(JSON.stringify(payload, null, 2));
 
-    const reference = payload.external_id; // ini penting
-    const status = payload.status; // PAID, EXPIRED, dll
+    if (!payload.external_id) {
+      console.error("❌ external_id TIDAK ADA");
+    }
 
+    if (!payload.status) {
+      console.error("❌ status TIDAK ADA");
+    }
+
+    const reference = payload.external_id;
+    const status = payload.status;
+
+    console.log("\n📌 EXTRACTED:");
     console.log("Reference:", reference);
     console.log("Status:", status);
 
     // =============================
     // CARI SESSION
     // =============================
+    console.log("\n🔍 SEARCH SESSION...");
     const session = await PaymentSession.findOne({
-      where: {
-        reference: reference, // pastikan lu simpan external_id di DB
-      },
+      where: { reference },
     });
 
     if (!session) {
-      console.warn("⚠️ SESSION TIDAK DITEMUKAN");
+      console.warn("⚠️ SESSION TIDAK DITEMUKAN DI DB");
       return res.status(200).json({ success: true });
     }
 
-    // IDEMPOTENT (biar ga double update)
+    console.log("✅ SESSION FOUND:", session.toJSON());
+
+    // =============================
+    // IDEMPOTENT CHECK
+    // =============================
     if (session.status === "PAID") {
-      console.log("ℹ️ SUDAH PAID");
+      console.log("ℹ️ SUDAH PAID, SKIP UPDATE");
       return res.status(200).json({ success: true });
     }
 
     // =============================
     // UPDATE SESSION
     // =============================
-    await session.update({ status: status });
+    console.log("\n✏️ UPDATE SESSION...");
+    await session.update({ status });
     console.log("✅ SESSION UPDATED");
 
     // =============================
     // HANDLE STATUS
     // =============================
     if (status === "PAID") {
+      console.log("\n💰 STATUS = PAID, PROCESSING...");
+
       if (session.related_type === "order") {
+        console.log("➡️ UPDATE ORDER");
+
         await Order.update(
           {
             payment_status: "PAID",
@@ -180,10 +228,13 @@ router.post("/xendit", async (req, res) => {
           },
           { where: { id: session.related_id } }
         );
+
         console.log("✅ ORDER UPDATED");
       }
 
       if (session.related_type === "booking") {
+        console.log("➡️ UPDATE BOOKING");
+
         await Booking.update(
           {
             payment_status: "paid",
@@ -192,13 +243,21 @@ router.post("/xendit", async (req, res) => {
           },
           { where: { id: session.related_id } }
         );
+
         console.log("✅ BOOKING UPDATED");
       }
+    } else {
+      console.log(`ℹ️ STATUS BUKAN PAID (${status}), SKIP BUSINESS LOGIC`);
     }
 
+    console.log("\n✅ CALLBACK DONE\n");
     return res.status(200).json({ success: true });
+
   } catch (err) {
-    console.error("🔥 XENDIT CALLBACK ERROR:", err);
+    console.error("\n🔥 XENDIT CALLBACK ERROR FULL:");
+    console.error(err);
+    console.error("STACK:", err.stack);
+
     return res.status(200).json({ success: true });
   }
 });
